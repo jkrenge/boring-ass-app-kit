@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org). Until 1.0, a minor version (0.x) may include breaking changes, so pin with "Up to Next Minor".
 
-## Unreleased
+## 0.1.1 (2026-11-23)
 
 - Security: the Worker's JSON depth check runs in linear time. Crafted input could cost it seconds of CPU per request, even on unauthenticated registration.
 - Security: the Worker reads request bodies up to each route's limit and stops there, so a body sent without Content-Length can't make it buffer more.
