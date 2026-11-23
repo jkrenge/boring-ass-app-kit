@@ -4,7 +4,7 @@ Crash reporting, feedback and basic usage analytics for my iOS apps, with no pai
 
 | Piece | What | Where |
 |---|---|---|
-| Crashes | [KSCrash](https://github.com/kstenerud/KSCrash) + its MetricKit monitor (hangs, watchdog and CPU/disk kills) | `Sources/BoringKit` |
+| Crashes | [KSCrash](https://github.com/kstenerud/KSCrash) (signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills), plus its MetricKit monitor, which adds the crash reports iOS itself collects | `Sources/BoringKit` |
 | Analytics + handled errors | [aptabase-swift](https://github.com/aptabase/aptabase-swift), pointed at our Worker | `Sources/BoringKit` |
 | Feedback | `FeedbackView` (SwiftUI sheet) or `BoringKit.sendFeedback(_:)` | `Sources/BoringKit` |
 | API | Python Cloudflare Worker + D1 (SQLite) | `api/` |
@@ -14,8 +14,10 @@ Crash reporting, feedback and basic usage analytics for my iOS apps, with no pai
 
 1. `BoringKit.start(api:)` installs KSCrash right away, then registers the device: it asks Apple's DeviceCheck for a token and posts it to `POST /v1/register`.
 2. The Worker asks Apple whether the token is genuine. If it is, the Worker hands back a random device token and stores its sha256 in `devices`.
-3. The app keeps that token in the Keychain and sends it with everything else. Requests without a known token get a 401.
+3. The app keeps that token in the Keychain (this device only) and sends it with everything else. Requests without a known token get a 401. On each launch the app also checks its token with `POST /v1/ping` and registers again if it got a 401.
 4. Aptabase sends to `/api/v0/events` and `/api/v0/error` with the token in its `App-Key` header (`A-SH-<token>`). Crash reports and feedback go to `/v1/crashes` and `/v1/feedback` with `Authorization: Bearer <token>`.
+
+Each device gets about 120 requests a minute (large crash reports count for more), and each IP gets 10 registrations a minute. Past that, the Worker returns 429.
 
 The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which is set in `api/.dev.vars` for local dev and never in production.
 
@@ -77,10 +79,10 @@ Point an app running in the Simulator at `http://127.0.0.1:8787`.
 cd api && uv run pytest                       # Worker unit tests
 ```
 
-The integration test below runs in the Simulator against the local Worker started above:
+The integration test runs in the Simulator against the local Worker started above. It then checks that the event, error, crash and feedback it sent all reached local D1:
 
 ```bash
-TEST_RUNNER_BORINGKIT_API=http://127.0.0.1:8787 xcodebuild test -scheme BoringKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+scripts/integration-test.sh "iPhone 17 Pro"
 ```
 
 ## Reading the data
@@ -93,13 +95,20 @@ SELECT d.bundle_id, date(e.ts) AS day, count(DISTINCT e.device_id) AS devices, c
 FROM events e JOIN devices d ON d.id = e.device_id
 WHERE e.is_debug = 0 GROUP BY 1, 2 ORDER BY day DESC;
 
--- latest crashes
+-- latest crashes, release builds only, without MetricKit's second copy of crashes KSCrash already caught
 SELECT c.id, d.bundle_id, c.received_at,
        json_extract(c.report, '$.system.CFBundleShortVersionString') AS version,
+       json_extract(c.report, '$.report.monitor_id') AS source,
        json_extract(c.report, '$.crash.error.type') AS type,
        json_extract(c.report, '$.crash.error.signal.name') AS signal,
        json_extract(c.report, '$.crash.error.reason') AS reason
-FROM crashes c JOIN devices d ON d.id = c.device_id ORDER BY c.id DESC LIMIT 20;
+FROM crashes c JOIN devices d ON d.id = c.device_id
+WHERE ifnull(json_extract(c.report, '$.system.build_type'), '') NOT IN ('debug', 'simulator')
+  AND NOT (json_extract(c.report, '$.report.monitor_id') = 'MetricKit'
+           AND json_extract(c.report, '$.report.run_id') IN (
+             SELECT json_extract(report, '$.report.run_id') FROM crashes
+             WHERE ifnull(json_extract(report, '$.report.monitor_id'), '') <> 'MetricKit'))
+ORDER BY c.id DESC LIMIT 20;
 
 -- handled errors by type
 SELECT type, count(*) AS n, max(received_at) AS last_seen FROM errors WHERE is_debug = 0 GROUP BY type ORDER BY n DESC;
@@ -112,8 +121,8 @@ FROM feedback f JOIN devices d ON d.id = f.device_id ORDER BY f.id DESC;
 Your own code shows up in crash stacks as raw addresses in release builds. Symbolicate them with the build's dSYM:
 `atos -o MyApp.app.dSYM/Contents/Resources/DWARF/MyApp -l <load address> <address>`.
 
-**Blocking a device:** `UPDATE devices SET token_hash = 'revoked-' || id WHERE id = 42;`. Don't recreate the database instead. Existing installs would keep a dead token, and they only re-register after a crash upload or feedback send gets a 401.
+**Revoking a token:** `UPDATE devices SET token_hash = 'revoked-' || id WHERE id = 42;`. This doesn't ban the device. On its next launch, the ping gets a 401 and a genuine device simply registers again. A real ban would need something that survives re-registration, such as DeviceCheck's two per-device bits, and that isn't built. The same ping is what lets every install recover if the database is ever reset.
 
 ## What this does and doesn't protect against
 
-DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported, and there's no rate limiting. This is meant to keep out casual junk, not a determined attacker.
+DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits are approximate and counted per location, so they slow a flood down but don't cap storage. Someone with many IPs or devices could still fill D1, whose free plan holds 500 MB. This is meant to keep out casual junk, not a determined attacker.

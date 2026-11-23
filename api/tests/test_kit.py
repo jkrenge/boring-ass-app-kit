@@ -78,6 +78,21 @@ def test_parse_events_rejects(bad):
         kit.parse_events(bad)
 
 
+def test_too_deep():
+    assert not kit.too_deep(json.dumps([APTABASE_EVENT] * 25))
+    assert not kit.too_deep("[" * kit.MAX_DEPTH + "]" * kit.MAX_DEPTH)
+    assert kit.too_deep("[" * (kit.MAX_DEPTH + 1))
+    assert kit.too_deep("[" * 8000)  # the request that used to kill the isolate
+    # brackets inside strings (incl. escaped quotes) don't count
+    assert not kit.too_deep(json.dumps({"stack": "[" * 500, "q": 'say \\"[[[[\\"'}))
+
+
+def test_dumps_is_compact_and_rejects_nan():
+    assert kit.dumps({"a": [1, 2], "b": "ü"}) == '{"a":[1,2],"b":"ü"}'
+    with pytest.raises(ValueError):
+        kit.dumps({"x": float("nan")})
+
+
 def test_parse_register_feedback_error():
     assert kit.parse_register({"bundleId": "com.x.app"}) == {
         "bundle_id": "com.x.app", "device_check_token": None, "development": False}

@@ -23,14 +23,24 @@ public enum BoringKit {
     public static func start(api: URL) {
         self.api = api
         installCrashReporter()
+        let saved = Keychain.read()
+        token = saved
+        // start analytics synchronously so events tracked right after start() aren't dropped
+        if let saved { startAnalytics(api, token: saved) }
         Task {
+            // Aptabase drops 401s silently, so check the token ourselves; a 401 clears it and we register again
+            if let saved { _ = await post("v1/ping", json: [:], token: saved) }
             // shortcut: on first launch, events tracked before registration finishes are dropped
-            guard let token = await deviceToken() else { return }
-            var host = api.absoluteString
-            if host.hasSuffix("/") { host.removeLast() }
-            Aptabase.shared.initialize(appKey: "A-SH-\(token)", with: InitOptions(host: host))
-            await uploadCrashReports(token)
+            guard let current = await deviceToken() else { return }
+            if current != saved { startAnalytics(api, token: current) }
+            await uploadCrashReports(current)
         }
+    }
+
+    private static func startAnalytics(_ api: URL, token: String) {
+        var host = api.absoluteString
+        if host.hasSuffix("/") { host.removeLast() }
+        Aptabase.shared.initialize(appKey: "A-SH-\(token)", with: InitOptions(host: host))
     }
 
     /// Sends feedback right away. `FeedbackView` uses this; call it directly for your own UI.
@@ -99,12 +109,14 @@ public enum BoringKit {
         for id in store.reportIDs.map(\.int64Value) {
             guard let report = store.reportData(for: id)?.value else { continue }
             guard let (_, status) = await send(api.appending(path: "v1/crashes"), body: report, token: token) else {
-                return  // offline: keep reports on disk for next launch
+                break  // offline: keep reports on disk for next launch
             }
             // 400/413 will never succeed, so drop them too
             if (200..<300).contains(status) || status == 400 || status == 413 { store.deleteReport(with: id) }
-            if status == 401 { return }
+            if status == 401 || status == 429 { break }
         }
+        // KSCrash's own sendAllReports deletes leftover per-launch folders; uploading by hand skips that
+        Task.detached(priority: .background) { KSCrash.shared.reportStore?.cleanupOrphanedRunSidecars() }
     }
 
     // MARK: - HTTP
@@ -122,8 +134,9 @@ public enum BoringKit {
         request.httpBody = body
         guard let (data, response) = try? await URLSession.shared.data(for: request) else { return nil }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 401 {
-            // revoked or unknown: forget it so the next launch registers again
+        // revoked or unknown: forget it so we register again. Only if it's still current: a late 401
+        // for an old token must not wipe one we registered since.
+        if status == 401, let token, token == self.token {
             Keychain.save(nil)
             self.token = nil
         }
@@ -178,7 +191,8 @@ private enum Keychain {
         guard let token else { return }
         var query = query
         query[kSecValueData as String] = Data(token.utf8)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        // ThisDeviceOnly: don't carry the token to a new phone via backups, which would merge two devices
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(query as CFDictionary, nil)
     }
 }

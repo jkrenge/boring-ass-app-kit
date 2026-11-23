@@ -28,43 +28,62 @@ class Default(WorkerEntrypoint):
         path = urlparse(request.url).path
         if request.method != "POST" or path not in kit.LIMITS:
             return error(404, "not found")
+        length = request.headers.get("content-length") or ""
+        if length.isdigit() and int(length) > kit.LIMITS[path]:
+            return error(413, "body too large")
 
         if path == "/v1/register":
             device_id = None
+            # Cloudflare sets cf-connecting-ip; it's absent under `pywrangler dev`
+            limiter, key = self.env.REGISTER_LIMIT, request.headers.get("cf-connecting-ip") or "local"
         else:
             token = kit.token_from_headers(request.headers)
             device_id = token and await self.device_id(token)
             if not device_id:
                 return error(401, "unknown device")
+            limiter, key = self.env.DEVICE_LIMIT, str(device_id)
 
-        body = await request.text()
+        body = await request.text()  # chunked bodies have no content-length, so check again
         if len(body) > kit.LIMITS[path]:
             return error(413, "body too large")
+        # big crash reports cost more of the per-device budget
+        if not await self.allowed(limiter, key, cost=1 + len(body) // 100_000):
+            return error(429, "slow down")
+        if kit.too_deep(body):
+            return error(400, "JSON nested too deeply")
         try:
             data = json.loads(body)
             match path:
                 case "/v1/register":
                     return await self.register(kit.parse_register(data))
+                case "/v1/ping":
+                    pass  # reaching here means the token is valid
                 case "/api/v0/events":
                     await self.save_events(device_id, kit.parse_events(data))
                 case "/api/v0/error":
                     e = kit.parse_error(data)
                     await self.sql(
                         "INSERT INTO errors (device_id, type, message, is_debug, report) VALUES (?, ?, ?, ?, ?)",
-                        device_id, e["type"], e["message"], int(e["is_debug"]), json.dumps(e["report"]),
+                        device_id, e["type"], e["message"], int(e["is_debug"]), kit.dumps(e["report"]),
                     ).run()
                 case "/v1/crashes":
-                    kit.parse_crash(data)
-                    await self.sql("INSERT INTO crashes (device_id, report) VALUES (?, ?)", device_id, body).run()
+                    report = kit.dumps(kit.parse_crash(data))
+                    await self.sql("INSERT INTO crashes (device_id, report) VALUES (?, ?)", device_id, report).run()
                 case "/v1/feedback":
                     f = kit.parse_feedback(data)
                     await self.sql(
                         "INSERT INTO feedback (device_id, message, email, meta) VALUES (?, ?, ?, ?)",
-                        device_id, f["message"], f["email"], json.dumps(f["meta"]),
+                        device_id, f["message"], f["email"], kit.dumps(f["meta"]),
                     ).run()
         except ValueError as e:  # also catches json.JSONDecodeError
             return error(400, str(e))
         return Response.json({"ok": True})
+
+    async def allowed(self, limiter, key: str, cost: int) -> bool:
+        # shortcut: Cloudflare rate limits are approximate and per location; a per-device daily quota
+        # in D1 would be the next step if one device ever floods the database
+        result = await limiter.limit(js_obj({"key": key, "delta": cost}))
+        return bool(result.success)
 
     def sql(self, query: str, *args):
         # D1 rejects `undefined`, which is what Python None becomes, so pass JS null explicitly
@@ -82,7 +101,7 @@ class Default(WorkerEntrypoint):
                SELECT ?, value->>'ts', value->>'session_id', value->>'name',
                       value->>'props', value->>'system', value->>'is_debug'
                FROM json_each(?)""",
-            device_id, json.dumps(events),
+            device_id, kit.dumps(events),
         ).run()
 
     async def register(self, req: dict):

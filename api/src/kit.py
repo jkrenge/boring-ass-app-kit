@@ -9,11 +9,32 @@ import secrets
 # Max request body size per route, in characters. D1 caps a row at 2 MB.
 LIMITS = {
     "/v1/register": 8_000,
+    "/v1/ping": 100,
     "/api/v0/events": 128_000,
     "/api/v0/error": 64_000,
     "/v1/crashes": 1_500_000,
     "/v1/feedback": 32_000,
 }
+
+MAX_DEPTH = 64
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+_BRACKET = re.compile(r"[\[\]{}]")
+
+
+def too_deep(body: str) -> bool:
+    """Deeply nested JSON overflows Pyodide's JS stack inside json.loads, which kills the whole
+    isolate (uncatchable), so check nesting before parsing."""
+    depth = 0
+    for bracket in _BRACKET.findall(_STRING.sub("", body)):
+        depth += 1 if bracket in "[{" else -1
+        if depth > MAX_DEPTH:
+            return True
+    return False
+
+
+def dumps(value) -> str:
+    # compact (KSCrash pretty-prints, ~30% bigger); NaN/Infinity aren't JSON, so reject them (ValueError -> 400)
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
 def token_from_headers(headers) -> str | None:
