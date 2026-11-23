@@ -27,7 +27,7 @@ The package is `https://github.com/jkrenge/boring-ass-app-kit`, its product is `
 
 Then run `xcodebuild -resolvePackageDependencies` and build.
 
-Don't add `aptabase-swift` or `KSCrash` to the app separately. BoringKit pins them, and `import BoringKit` re-exports Aptabase.
+Don't add `aptabase-swift` or `KSCrash` to the app separately. BoringKit brings them in, aptabase-swift at exactly 0.4.0 and KSCrash at any 2.6.x, and `import BoringKit` re-exports Aptabase.
 
 ### 2. Start it at launch
 

@@ -1,5 +1,6 @@
 import base64
 import json
+import time
 
 import pytest
 from cryptography.hazmat.primitives import hashes, serialization
@@ -85,6 +86,23 @@ def test_too_deep():
     assert kit.too_deep("[" * 8000)  # the request that used to kill the isolate
     # brackets inside strings (incl. escaped quotes) don't count
     assert not kit.too_deep(json.dumps({"stack": "[" * 500, "q": 'say \\"[[[[\\"'}))
+    # an unterminated string hides what follows it, which json.loads rejects anyway
+    assert not kit.too_deep('"' + "[" * 500)
+    assert kit.too_deep("[" * 500 + '"')
+
+
+def test_too_deep_is_linear():
+    # each unclosed quote used to rescan the rest of the body: ~30 s at this size
+    start = time.perf_counter()
+    kit.too_deep('\\"' * (kit.LIMITS["/api/v0/events"] // 2))
+    kit.too_deep('"' * kit.LIMITS["/api/v0/events"])
+    assert time.perf_counter() - start < 1
+
+
+def test_clean_replaces_control_characters():
+    dirty = {"name\x1b": ["\x1b]52;c;evil\x07", 3, None], "ok": "tab\tnew\nline ü", "c1": "\x9b31m"}
+    assert kit.clean(dirty) == {"name�": ["�]52;c;evil�", 3, None], "ok": "tab\tnew\nline ü",
+                                "c1": "�31m"}
 
 
 def test_dumps_is_compact_and_rejects_nan():

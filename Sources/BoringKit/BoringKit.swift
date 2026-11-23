@@ -62,7 +62,9 @@ public enum BoringKit {
               let (data, status) = await send(api.appending(path: "v1/ping"), body: json(["version": shortVersion]), token: token),
               status == 200
         else { return nil }
-        return (try? JSONDecoder().decode(Pong.self, from: data))?.update
+        let update = (try? JSONDecoder().decode(Pong.self, from: data))?.update
+        // only ever send people to the App Store, whatever the Worker says
+        return update?.url.scheme == "https" && update?.url.host() == "apps.apple.com" ? update : nil
     }
 
     /// Sends feedback right away. `FeedbackView` uses this; call it directly for your own UI.

@@ -6,7 +6,7 @@ import json
 import re
 import secrets
 
-# Max request body size per route, in characters. D1 caps a row at 2 MB.
+# Max request body size per route, in bytes. D1 caps a row at 2 MB.
 LIMITS = {
     "/v1/register": 8_000,
     "/v1/ping": 100,
@@ -23,8 +23,12 @@ APPS: dict[str, dict] = {
 }
 
 MAX_DEPTH = 64
-_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+# The closing quote is optional, so an unterminated string runs to the end in one match. With a required
+# quote, each `"` would rescan to the end and fail: quadratic time on input like \"\"\"...
+_STRING = re.compile(r'"(?:[^"\\]|\\.)*"?', re.DOTALL)
 _BRACKET = re.compile(r"[\[\]{}]")
+# C0 controls except tab and newline, DEL and C1: ESC sequences would reach the terminal of whoever reads the data
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def too_deep(body: str) -> bool:
@@ -36,6 +40,17 @@ def too_deep(body: str) -> bool:
         if depth > MAX_DEPTH:
             return True
     return False
+
+
+def clean(value):
+    """Replaces control characters in every string of parsed JSON, keys included."""
+    if isinstance(value, str):
+        return _CONTROL.sub("�", value)
+    if isinstance(value, list):
+        return [clean(v) for v in value]
+    if isinstance(value, dict):
+        return {clean(k): clean(v) for k, v in value.items()}
+    return value
 
 
 def dumps(value) -> str:

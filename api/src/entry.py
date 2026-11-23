@@ -43,8 +43,8 @@ class Default(WorkerEntrypoint):
                 return error(401, "unknown device")
             limiter, key = self.env.DEVICE_LIMIT, str(device_id)
 
-        body = await request.text()  # chunked bodies have no content-length, so check again
-        if len(body) > kit.LIMITS[path]:
+        body = await self.read_body(request, kit.LIMITS[path])
+        if body is None:
             return error(413, "body too large")
         # big crash reports cost more of the per-device budget
         if not await self.allowed(limiter, key, cost=1 + len(body) // 100_000):
@@ -52,7 +52,7 @@ class Default(WorkerEntrypoint):
         if kit.too_deep(body):
             return error(400, "JSON nested too deeply")
         try:
-            data = json.loads(body)
+            data = kit.clean(json.loads(body))
             match path:
                 case "/v1/register":
                     return await self.register(kit.parse_register(data))
@@ -80,6 +80,22 @@ class Default(WorkerEntrypoint):
         except ValueError as e:  # also catches json.JSONDecodeError
             return error(400, str(e))
         return Response.json({"ok": True})
+
+    async def read_body(self, request, limit: int) -> str | None:
+        """The body as text, or None past `limit` bytes. Content-length is optional (chunked uploads,
+        HTTP/2), so read the stream and stop at the limit rather than buffer whatever arrives."""
+        stream = request.body
+        if stream is None or stream is jsnull:
+            return ""
+        reader = stream.getReader()
+        chunks, size = [], 0
+        while not (chunk := await reader.read()).done:
+            chunks.append(chunk.value.to_bytes())
+            size += len(chunks[-1])
+            if size > limit:
+                await reader.cancel()
+                return None
+        return b"".join(chunks).decode(errors="replace")
 
     async def allowed(self, limiter, key: str, cost: int) -> bool:
         # shortcut: Cloudflare rate limits are approximate and per location; a per-device daily quota

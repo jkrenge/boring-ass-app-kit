@@ -150,7 +150,7 @@ On their next launch, users on an older version get an "Update available" alert 
 
 ## Reading your data
 
-Use the Cloudflare dashboard (D1 → `boring-api` → Console), or run `uv run pywrangler d1 execute boring-api --remote --command "…"`.
+Use the Cloudflare dashboard (D1 → `boring-api` → Console), or run `uv run pywrangler d1 execute boring-api --remote --json --command "…"`. Keep `--json` on: the Worker strips control characters, but rows an older Worker stored may still hold terminal escape codes a device sent, and the JSON output escapes them.
 
 ```sql
 -- daily active devices per app (release builds)
@@ -174,9 +174,10 @@ SELECT c.id, d.bundle_id, c.received_at,
 FROM crashes c JOIN devices d ON d.id = c.device_id
 WHERE ifnull(json_extract(c.report, '$.system.build_type'), '') NOT IN ('debug', 'simulator')
   AND NOT (json_extract(c.report, '$.report.monitor_id') = 'MetricKit'
-           AND json_extract(c.report, '$.report.run_id') IN (
-             SELECT json_extract(report, '$.report.run_id') FROM crashes
-             WHERE ifnull(json_extract(report, '$.report.monitor_id'), '') <> 'MetricKit'))
+           AND EXISTS (SELECT 1 FROM crashes k
+                       WHERE k.device_id = c.device_id
+                         AND json_extract(k.report, '$.report.run_id') = json_extract(c.report, '$.report.run_id')
+                         AND ifnull(json_extract(k.report, '$.report.monitor_id'), '') <> 'MetricKit'))
 ORDER BY c.id DESC LIMIT 20;
 
 -- handled errors by type
@@ -198,7 +199,7 @@ In release builds, your own code shows up in crash stacks as raw addresses. Symb
 
 ## Security model
 
-DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Someone with many IPs or devices could still fill D1, whose free plan holds 500 MB. **This is meant to keep out casual junk, not a determined attacker.**
+DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Even one registered device can write about 3,000 events a minute. That uses up the free plan's 100,000 row writes for the day within about half an hour, and could fill its 500 MB within an hour or so. There's no per-device daily quota yet. **This is meant to keep out casual junk, not a determined attacker.**
 
 The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which belongs in `api/.dev.vars` for local dev and never in production.
 

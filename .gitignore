@@ -69,3 +69,7 @@ __pycache__/
 .dev.vars
 python_modules/
 node_modules/
+
+# Secrets: Apple's DeviceCheck key and env files never belong in the repo
+*.p8
+.env*
