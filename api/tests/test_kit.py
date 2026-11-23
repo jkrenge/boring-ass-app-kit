@@ -93,6 +93,27 @@ def test_dumps_is_compact_and_rejects_nan():
         kit.dumps({"x": float("nan")})
 
 
+def test_parse_version():
+    assert kit.parse_version("1.4") == kit.parse_version("1.4.0") == (1, 4, 0)
+    assert kit.parse_version("1.10") > kit.parse_version("1.9")
+    for bad in ["", "1.", "v1.2", "1.2.3.4", "1.2 (3)", None, 1.2]:
+        assert kit.parse_version(bad) is None
+
+
+def test_update_for():
+    apps = {"com.x.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1"}}
+    assert kit.update_for("com.x.app", {"version": "1.3.9"}, apps) == apps["com.x.app"]
+    for ping in [{"version": "1.4"}, {"version": "2.0"}, {"version": "?"}, {}, [], None]:
+        assert kit.update_for("com.x.app", ping, apps) is None
+    assert kit.update_for("com.other", {"version": "0.1"}, apps) is None
+    assert kit.update_for("com.x.app", {"version": "0.1"}, {"com.x.app": {"version": "oops", "url": ""}}) is None
+
+
+def test_configured_apps_are_valid():
+    for app in kit.APPS.values():  # a typo would quietly switch the prompt off
+        assert kit.parse_version(app["version"]) and app["url"].startswith("https://apps.apple.com/")
+
+
 def test_parse_register_feedback_error():
     assert kit.parse_register({"bundleId": "com.x.app"}) == {
         "bundle_id": "com.x.app", "device_check_token": None, "development": False}

@@ -57,7 +57,9 @@ class Default(WorkerEntrypoint):
                 case "/v1/register":
                     return await self.register(kit.parse_register(data))
                 case "/v1/ping":
-                    pass  # reaching here means the token is valid
+                    # reaching here means the token is valid; the reply also offers a newer version
+                    bundle_id = await self.sql("SELECT bundle_id FROM devices WHERE id = ?", device_id).first("bundle_id")
+                    return Response.json({"ok": True, "update": kit.update_for(bundle_id, data)})
                 case "/api/v0/events":
                     await self.save_events(device_id, kit.parse_events(data))
                 case "/api/v0/error":

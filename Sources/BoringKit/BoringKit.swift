@@ -13,6 +13,7 @@ import UIKit
 /// Aptabase.shared.trackEvent("export_tapped", with: ["format": "pdf"])
 /// Aptabase.shared.trackError(error)
 /// .sheet(isPresented: $showFeedback) { FeedbackView() }
+/// ContentView().updatePrompt()
 /// ```
 @MainActor
 public enum BoringKit {
@@ -27,9 +28,15 @@ public enum BoringKit {
         token = saved
         // start analytics synchronously so events tracked right after start() aren't dropped
         if let saved { startAnalytics(api, token: saved) }
+        // Aptabase drops 401s silently, so check the token ourselves; a 401 clears it and we register again.
+        // The same ping says whether a newer version is out. No ping on first launch: a fresh install is current.
+        let check = Task<AppUpdate?, Never> {
+            guard let saved else { return nil }
+            return await ping(saved)
+        }
+        updateCheck = check
         Task {
-            // Aptabase drops 401s silently, so check the token ourselves; a 401 clears it and we register again
-            if let saved { _ = await post("v1/ping", json: [:], token: saved) }
+            _ = await check.value
             // shortcut: on first launch, events tracked before registration finishes are dropped
             guard let current = await deviceToken() else { return }
             if current != saved { startAnalytics(api, token: current) }
@@ -41,6 +48,21 @@ public enum BoringKit {
         var host = api.absoluteString
         if host.hasSuffix("/") { host.removeLast() }
         Aptabase.shared.initialize(appKey: "A-SH-\(token)", with: InitOptions(host: host))
+    }
+
+    /// The newer version the Worker offers (`APPS` in api/src/kit.py), or nil. Waits for the launch ping.
+    /// `.updatePrompt()` uses this; call it directly for your own UI.
+    public static func availableUpdate() async -> AppUpdate? { await updateCheck?.value }
+
+    private static var updateCheck: Task<AppUpdate?, Never>?
+
+    private static func ping(_ token: String) async -> AppUpdate? {
+        struct Pong: Decodable { let update: AppUpdate? }
+        guard let api,
+              let (data, status) = await send(api.appending(path: "v1/ping"), body: json(["version": shortVersion]), token: token),
+              status == 200
+        else { return nil }
+        return (try? JSONDecoder().decode(Pong.self, from: data))?.update
     }
 
     /// Sends feedback right away. `FeedbackView` uses this; call it directly for your own UI.
@@ -149,9 +171,10 @@ public enum BoringKit {
 
     // MARK: - Device info
 
+    private static var shortVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?" }
+
     private static var appVersion: String {
-        let info = Bundle.main.infoDictionary
-        return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        "\(shortVersion) (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))"
     }
 
     private static var deviceModel: String {
@@ -167,6 +190,12 @@ public enum BoringKit {
             false
         #endif
     }
+}
+
+/// A newer version of this app on the App Store.
+public struct AppUpdate: Decodable, Sendable {
+    public let version: String
+    public let url: URL
 }
 
 private enum Keychain {

@@ -7,6 +7,7 @@ Crash reporting, feedback and basic usage analytics for my iOS apps, with no pai
 | Crashes | [KSCrash](https://github.com/kstenerud/KSCrash) (signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills), plus its MetricKit monitor, which adds the crash reports iOS itself collects | `Sources/BoringKit` |
 | Analytics + handled errors | [aptabase-swift](https://github.com/aptabase/aptabase-swift), pointed at our Worker | `Sources/BoringKit` |
 | Feedback | `FeedbackView` (SwiftUI sheet) or `BoringKit.sendFeedback(_:)` | `Sources/BoringKit` |
+| Update prompt | `.updatePrompt()` asks users on an old version to update, linking to the App Store | `Sources/BoringKit`, `APPS` in `api/src/kit.py` |
 | API | Python Cloudflare Worker + D1 (SQLite) | `api/` |
 | Device check | Apple DeviceCheck: a device registers once, then sends its token on every request | both |
 
@@ -14,7 +15,7 @@ Crash reporting, feedback and basic usage analytics for my iOS apps, with no pai
 
 1. `BoringKit.start(api:)` installs KSCrash right away, then registers the device: it asks Apple's DeviceCheck for a token and posts it to `POST /v1/register`.
 2. The Worker asks Apple whether the token is genuine. If it is, the Worker hands back a random device token and stores its sha256 in `devices`.
-3. The app keeps that token in the Keychain (this device only) and sends it with everything else. Requests without a known token get a 401. On each launch the app also checks its token with `POST /v1/ping` and registers again if it got a 401.
+3. The app keeps that token in the Keychain (this device only) and sends it with everything else. Requests without a known token get a 401. On each launch the app also checks its token with `POST /v1/ping` and registers again if it got a 401. The ping carries the app's version, and the reply says whether a newer one is out.
 4. Aptabase sends to `/api/v0/events` and `/api/v0/error` with the token in its `App-Key` header (`A-SH-<token>`). Crash reports and feedback go to `/v1/crashes` and `/v1/feedback` with `Authorization: Bearer <token>`.
 
 Each device gets about 120 requests a minute (large crash reports count for more), and each IP gets 10 registrations a minute. Past that, the Worker returns 429.
@@ -58,9 +59,20 @@ struct MyApp: App {
 Aptabase.shared.trackEvent("export_tapped", with: ["format": "pdf"])   // analytics
 Aptabase.shared.trackError(error)                                       // a handled error
 .sheet(isPresented: $showFeedback) { FeedbackView() }                   // feedback
+ContentView().updatePrompt()                                            // on the root view
 ```
 
 `import BoringKit` re-exports Aptabase. Debug builds are flagged `is_debug = 1`.
+
+**Telling users about an update:** once a release is live on the App Store, set its version in `APPS` in `api/src/kit.py` and run `uv run pywrangler deploy`:
+
+```python
+APPS = {
+    "com.you.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1234567890"},
+}
+```
+
+On their next launch, users on an older version get an "Update available" alert with an **Update** button that opens the App Store and a **Not now** button. It asks again on every launch until they update. Bump the version only after the release is live, or the App Store won't have the update yet when users get there. Phased release is fine, because users can always update by hand. For your own UI, use `await BoringKit.availableUpdate()` instead.
 
 App Store privacy label: declare Crash Data, Performance Data, Product Interaction and Other Diagnostic Data, none of them linked to the user's identity. If you keep the optional feedback email, also declare Email Address.
 

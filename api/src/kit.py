@@ -16,6 +16,12 @@ LIMITS = {
     "/v1/feedback": 32_000,
 }
 
+# Newest version of each app, by bundle id. On launch, devices on an older version are asked to update
+# and linked to `url`. Bump it once the release is live on the App Store, then deploy.
+APPS: dict[str, dict] = {
+    # "com.you.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1234567890"},
+}
+
 MAX_DEPTH = 64
 _STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
 _BRACKET = re.compile(r"[\[\]{}]")
@@ -141,6 +147,22 @@ def parse_error(data) -> dict:
         "is_debug": data.get("isDebug") is True,
         "report": data,
     }
+
+
+def parse_version(value) -> tuple[int, int, int] | None:
+    """CFBundleShortVersionString is up to three dot-separated integers: '1.4' -> (1, 4, 0)."""
+    if not isinstance(value, str) or not re.fullmatch(r"\d{1,9}(\.\d{1,9}){0,2}", value):
+        return None
+    parts = [int(p) for p in value.split(".")]
+    return tuple(parts + [0] * (3 - len(parts)))
+
+
+def update_for(bundle_id: str, ping, apps: dict = APPS) -> dict | None:
+    """The update to offer a device whose ping body is {"version": "1.3"}, or None."""
+    app = apps.get(bundle_id)
+    current = parse_version(ping.get("version")) if isinstance(ping, dict) else None  # old apps send {}
+    latest = parse_version(app["version"]) if app else None
+    return app if current and latest and latest > current else None
 
 
 def parse_crash(data) -> dict:
