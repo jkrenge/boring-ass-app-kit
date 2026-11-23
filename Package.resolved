@@ -1,0 +1,24 @@
+{
+  "originHash" : "a74d543237f872be32f075a708fec28af1e91da0296e6b3870e644c3b49bf03e",
+  "pins" : [
+    {
+      "identity" : "aptabase-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/aptabase/aptabase-swift.git",
+      "state" : {
+        "revision" : "a1ee53e99478921cd166c40f59f2e41271032776",
+        "version" : "0.4.0"
+      }
+    },
+    {
+      "identity" : "kscrash",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kstenerud/KSCrash.git",
+      "state" : {
+        "revision" : "c3882b4db5e810a8ed4148b79cab29a173d4c5c5",
+        "version" : "2.6.1"
+      }
+    }
+  ],
+  "version" : 3
+}

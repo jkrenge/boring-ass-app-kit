@@ -60,3 +60,12 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Python Worker (api/)
+.venv/
+__pycache__/
+.pytest_cache/
+.wrangler/
+.dev.vars
+python_modules/
+node_modules/
