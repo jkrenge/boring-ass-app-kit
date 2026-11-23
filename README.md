@@ -1,32 +1,59 @@
-# boring-ass-app-kit
+# Boring Ass App Kit
 
-Crash reporting, feedback and basic usage analytics for my iOS apps, with no paid product involved.
+**The boring stuff every iOS app needs: crash reports, usage analytics, user feedback and update prompts. It all goes to your own Cloudflare Worker, with no paid product and no third-party SDK vendor.**
 
-| Piece | What | Where |
-|---|---|---|
-| Crashes | [KSCrash](https://github.com/kstenerud/KSCrash) (signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills), plus its MetricKit monitor, which adds the crash reports iOS itself collects | `Sources/BoringKit` |
-| Analytics + handled errors | [aptabase-swift](https://github.com/aptabase/aptabase-swift), pointed at our Worker | `Sources/BoringKit` |
-| Feedback | `FeedbackView` (SwiftUI sheet) or `BoringKit.sendFeedback(_:)` | `Sources/BoringKit` |
-| Update prompt | `.updatePrompt()` asks users on an old version to update, linking to the App Store | `Sources/BoringKit`, `APPS` in `api/src/kit.py` |
-| API | Python Cloudflare Worker + D1 (SQLite) | `api/` |
-| Device check | Apple DeviceCheck: a device registers once, then sends its token on every request | both |
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![iOS 16+](https://img.shields.io/badge/iOS-16%2B-lightgrey.svg)
+![Swift 6](https://img.shields.io/badge/Swift-6-orange.svg)
+![Cloudflare Workers](https://img.shields.io/badge/API-Cloudflare%20Workers%20(Python)-f38020.svg)
 
-## How it fits together
+One Swift package goes into every app you make. One small Python Worker on Cloudflare's free plan collects the data in a SQLite database you own and query with plain SQL.
 
-1. `BoringKit.start(api:)` installs KSCrash right away, then registers the device: it asks Apple's DeviceCheck for a token and posts it to `POST /v1/register`.
-2. The Worker asks Apple whether the token is genuine. If it is, the Worker hands back a random device token and stores its sha256 in `devices`.
-3. The app keeps that token in the Keychain (this device only) and sends it with everything else. Requests without a known token get a 401. On each launch the app also checks its token with `POST /v1/ping` and registers again if it got a 401. The ping carries the app's version, and the reply says whether a newer one is out.
-4. Aptabase sends to `/api/v0/events` and `/api/v0/error` with the token in its `App-Key` header (`A-SH-<token>`). Crash reports and feedback go to `/v1/crashes` and `/v1/feedback` with `Authorization: Bearer <token>`.
+## What you get
 
-Each device gets about 120 requests a minute (large crash reports count for more), and each IP gets 10 registrations a minute. Past that, the Worker returns 429.
+| Feature | How |
+|---|---|
+| **Crash reporting** | [KSCrash](https://github.com/kstenerud/KSCrash) catches signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills. Its MetricKit monitor adds the crash reports iOS collects itself. |
+| **Usage analytics** | [aptabase-swift](https://github.com/aptabase/aptabase-swift) events and sessions, pointed at your Worker instead of Aptabase's cloud. |
+| **Handled errors** | `Aptabase.shared.trackError(error)` for the errors you catch but didn't expect. |
+| **User feedback** | `FeedbackView`, a ready-made SwiftUI sheet with an optional reply email, or `BoringKit.sendFeedback(_:)` for your own UI. |
+| **Update prompt** | `.updatePrompt()` asks users on an old version to update and links to the App Store. You choose the version per app. |
+| **Device check** | Devices register once through Apple DeviceCheck, so the API only accepts genuine Apple devices. Each device and IP is rate-limited. |
+| **Your data, in SQL** | Everything lands in Cloudflare D1 (SQLite). Query it from the dashboard or the CLI. |
 
-The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which is set in `api/.dev.vars` for local dev and never in production.
+## How it works
 
-## One-time setup
+```mermaid
+flowchart LR
+    App["Your iOS app<br/>BoringKit: KSCrash, MetricKit, Aptabase"]
+    Worker["Cloudflare Worker<br/>(Python)"]
+    Apple["Apple DeviceCheck"]
+    DB[("D1<br/>SQLite")]
+    App -- "register once" --> Worker
+    App -- "events, errors, crashes,<br/>feedback, launch ping" --> Worker
+    Worker -- "real device?" --> Apple
+    Worker --> DB
+```
 
-**Apple:** in the developer portal, go to Certificates, IDs & Profiles → Keys and create a key with **DeviceCheck** enabled. Download `AuthKey_XXXXXXXXXX.p8` and note its Key ID and your Team ID. One key covers all apps in the team, and apps need no extra entitlement.
+1. On first launch, `BoringKit.start(api:)` gets a DeviceCheck token from Apple and posts it to `POST /v1/register`. The Worker asks Apple whether the token is genuine, then hands back a random device token and stores only its hash.
+2. The app keeps that token in the Keychain (this device only) and sends it with every request. Requests without a known token get a 401.
+3. On each launch, `POST /v1/ping` checks the token and sends the app's version. The reply says whether a newer version is out. If the ping gets a 401, the app registers again.
+4. Aptabase sends events and errors to `/api/v0/events` and `/api/v0/error`, with the token in its `App-Key` header. Crash reports go to `/v1/crashes` on the next launch, and feedback goes to `/v1/feedback` right away.
 
-**Cloudflare** (needs `uv` and Node):
+## Requirements
+
+- iOS 16 or later, and Xcode 16 or later (Swift 6)
+- A Cloudflare account. The free plan is enough for small apps; see the [Workers](https://developers.cloudflare.com/workers/platform/limits/) and [D1](https://developers.cloudflare.com/d1/platform/limits/) limits.
+- An Apple Developer Program membership, for the DeviceCheck key
+- [uv](https://docs.astral.sh/uv/) and Node, to deploy the Worker
+
+## Quick start
+
+### 1. Deploy the API (once)
+
+**Apple:** in the developer portal, go to Certificates, IDs & Profiles → Keys and create a key with **DeviceCheck** enabled. Download `AuthKey_XXXXXXXXXX.p8`, and note its Key ID and your Team ID. One key covers every app in the team, and apps need no extra entitlement.
+
+**Cloudflare:** fork or clone this repo, then:
 
 ```bash
 cd api
@@ -39,32 +66,79 @@ uv run pywrangler secret put APPLE_KEY_ID
 uv run pywrangler secret put APPLE_DEVICECHECK_KEY < ~/Downloads/AuthKey_XXXXXXXXXX.p8
 ```
 
-Redeploy after changes with `uv run pywrangler deploy`. Schema changes go in a new file in `api/migrations/`, then run `migrations apply --remote`.
+After later changes, redeploy with `uv run pywrangler deploy`. Schema changes go in a new file in `api/migrations/`, followed by `migrations apply --remote`.
 
-## Add it to an app
+### 2. Add the package to your app
 
-In Xcode, choose File → Add Package Dependencies. Use this repo's git URL, or **Add Local…** for the folder.
+In Xcode, choose **File → Add Package Dependencies…**, enter `https://github.com/jkrenge/boring-ass-app-kit`, set the rule to **Up to Next Minor Version** from `0.1.0`, and add **BoringKit** to your app target.
+
+Or, in a `Package.swift`:
+
+```swift
+.package(url: "https://github.com/jkrenge/boring-ass-app-kit", .upToNextMinor(from: "0.1.0")),
+// target dependency:
+.product(name: "BoringKit", package: "boring-ass-app-kit"),
+```
+
+### 3. Start it
 
 ```swift
 import BoringKit
+import SwiftUI
 
 @main
 struct MyApp: App {
     init() {
         BoringKit.start(api: URL(string: "https://boring-api.<subdomain>.workers.dev")!)
     }
-    // ...
-}
 
-Aptabase.shared.trackEvent("export_tapped", with: ["format": "pdf"])   // analytics
-Aptabase.shared.trackError(error)                                       // a handled error
-.sheet(isPresented: $showFeedback) { FeedbackView() }                   // feedback
-ContentView().updatePrompt()                                            // on the root view
+    var body: some Scene {
+        WindowGroup {
+            ContentView().updatePrompt()
+        }
+    }
+}
 ```
 
-`import BoringKit` re-exports Aptabase. Debug builds are flagged `is_debug = 1`.
+That's enough for crash reports and the update prompt. Add events, errors and feedback where they make sense; see [Usage](#usage).
 
-**Telling users about an update:** once a release is live on the App Store, set its version in `APPS` in `api/src/kit.py` and run `uv run pywrangler deploy`:
+### Or let your coding agent do it
+
+Paste this into Claude Code, Codex, Cursor or another coding agent, from your app's repo:
+
+```text
+Add Boring Ass App Kit to this iOS app: crash reporting, analytics, handled errors,
+a feedback screen and an update prompt. Follow the integration guide at
+https://raw.githubusercontent.com/jkrenge/boring-ass-app-kit/main/AGENTS.md
+My Worker URL is https://boring-api.<subdomain>.workers.dev
+Suggest a few analytics events for the key actions in this app before adding them.
+```
+
+[AGENTS.md](AGENTS.md) tells the agent how to add the package, where to call what, and what never to track.
+
+## Usage
+
+```swift
+// analytics: snake_case names; props can be String, Int, Double, Float or Bool. No personal data.
+Aptabase.shared.trackEvent("export_tapped", with: ["format": "pdf"])
+
+// an error you caught but didn't expect
+Aptabase.shared.trackError(error)
+
+// feedback
+.sheet(isPresented: $showFeedback) { FeedbackView() }
+let sent = await BoringKit.sendFeedback("Love it", email: nil)
+
+// update prompt, or your own UI
+ContentView().updatePrompt()
+if let update = await BoringKit.availableUpdate() { /* update.version, update.url */ }
+```
+
+`import BoringKit` re-exports Aptabase. Debug builds are flagged `is_debug = 1`, so you can filter them out.
+
+### Telling users about an update
+
+Once a release is live on the App Store, set its version in `APPS` in [`api/src/kit.py`](api/src/kit.py) and run `uv run pywrangler deploy`:
 
 ```python
 APPS = {
@@ -72,32 +146,9 @@ APPS = {
 }
 ```
 
-On their next launch, users on an older version get an "Update available" alert with an **Update** button that opens the App Store and a **Not now** button. It asks again on every launch until they update. Bump the version only after the release is live, or the App Store won't have the update yet when users get there. Phased release is fine, because users can always update by hand. For your own UI, use `await BoringKit.availableUpdate()` instead.
+On their next launch, users on an older version get an "Update available" alert with **Update**, which opens the App Store, and **Not now**. It asks again on every launch until they update. Bump the version only after the release is live, or the App Store won't have the update yet when users get there. A phased release is fine, because users can always update by hand.
 
-App Store privacy label: declare Crash Data, Performance Data, Product Interaction and Other Diagnostic Data, none of them linked to the user's identity. If you keep the optional feedback email, also declare Email Address.
-
-## Local dev and tests
-
-```bash
-cd api
-echo 'ALLOW_UNATTESTED=true' > .dev.vars
-uv run pywrangler d1 migrations apply boring-api --local
-uv run pywrangler dev                         # http://127.0.0.1:8787
-```
-
-Point an app running in the Simulator at `http://127.0.0.1:8787`.
-
-```bash
-cd api && uv run pytest                       # Worker unit tests
-```
-
-The integration test runs in the Simulator against the local Worker started above. It then checks that the event, error, crash and feedback it sent all reached local D1:
-
-```bash
-scripts/integration-test.sh "iPhone 17 Pro"
-```
-
-## Reading the data
+## Reading your data
 
 Use the Cloudflare dashboard (D1 → `boring-api` → Console), or run `uv run pywrangler d1 execute boring-api --remote --command "…"`.
 
@@ -106,6 +157,12 @@ Use the Cloudflare dashboard (D1 → `boring-api` → Console), or run `uv run p
 SELECT d.bundle_id, date(e.ts) AS day, count(DISTINCT e.device_id) AS devices, count(*) AS events
 FROM events e JOIN devices d ON d.id = e.device_id
 WHERE e.is_debug = 0 GROUP BY 1, 2 ORDER BY day DESC;
+
+-- which versions people are on (last 30 days)
+SELECT d.bundle_id, json_extract(e.system, '$.appVersion') AS version, count(DISTINCT e.device_id) AS devices
+FROM events e JOIN devices d ON d.id = e.device_id
+WHERE e.is_debug = 0 AND date(e.ts) > date('now', '-30 days')
+GROUP BY 1, 2 ORDER BY 1, 3 DESC;
 
 -- latest crashes, release builds only, without MetricKit's second copy of crashes KSCrash already caught
 SELECT c.id, d.bundle_id, c.received_at,
@@ -130,11 +187,36 @@ SELECT f.received_at, d.bundle_id, f.message, f.email, f.meta
 FROM feedback f JOIN devices d ON d.id = f.device_id ORDER BY f.id DESC;
 ```
 
-Your own code shows up in crash stacks as raw addresses in release builds. Symbolicate them with the build's dSYM:
+In release builds, your own code shows up in crash stacks as raw addresses. Symbolicate them with the build's dSYM:
 `atos -o MyApp.app.dSYM/Contents/Resources/DWARF/MyApp -l <load address> <address>`.
+
+## Privacy
+
+- **No user identity.** Each install gets a random token, and the Worker stores only its sha256. There's no advertising ID and no account ID. The Worker uses IP addresses for rate limiting and never writes them to D1. Cloudflare's own Worker logs, which `wrangler.jsonc` turns on, keep request details for a few days.
+- **What's stored:** events with their props, plus device model, OS, locale and app version; crash reports; handled errors; and feedback, with an email only if the user typed one.
+- **App Store privacy label:** declare Crash Data, Performance Data, Product Interaction and Other Diagnostic Data, none of them linked to the user's identity. If you keep the optional feedback email, also declare Email Address. KSCrash and Aptabase ship their own privacy manifests.
+
+## Security model
+
+DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Someone with many IPs or devices could still fill D1, whose free plan holds 500 MB. **This is meant to keep out casual junk, not a determined attacker.**
+
+The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which belongs in `api/.dev.vars` for local dev and never in production.
 
 **Revoking a token:** `UPDATE devices SET token_hash = 'revoked-' || id WHERE id = 42;`. This doesn't ban the device. On its next launch, the ping gets a 401 and a genuine device simply registers again. A real ban would need something that survives re-registration, such as DeviceCheck's two per-device bits, and that isn't built. The same ping is what lets every install recover if the database is ever reset.
 
-## What this does and doesn't protect against
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
-DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits are approximate and counted per location, so they slow a flood down but don't cap storage. Someone with many IPs or devices could still fill D1, whose free plan holds 500 MB. This is meant to keep out casual junk, not a determined attacker.
+## Local development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running the Worker locally, the unit tests, and the Simulator integration test that checks every kind of data reaches D1.
+
+## Built on
+
+- [KSCrash](https://github.com/kstenerud/KSCrash) by Karl Stenerud: crash reporting (MIT)
+- [aptabase-swift](https://github.com/aptabase/aptabase-swift) by Sumbit Labs: analytics client (MIT)
+- [Cloudflare Python Workers](https://developers.cloudflare.com/workers/languages/python/) and [D1](https://developers.cloudflare.com/d1/)
+- [Apple DeviceCheck](https://developer.apple.com/documentation/devicecheck)
+
+## License
+
+[MIT](LICENSE) © 2026 Julian Krenge
