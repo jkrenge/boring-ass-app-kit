@@ -1,0 +1,59 @@
+# Deploys the Worker in api/ to your Cloudflare account on every push to main that touches it.
+# It does nothing until you set CLOUDFLARE_ACCOUNT_ID and D1_DATABASE_ID; see "Deploy from GitHub" in the README.
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths: [api/**, .github/workflows/deploy.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.CLOUDFLARE_ACCOUNT_ID != '' && vars.D1_DATABASE_ID != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash # the deploy step relies on bash word splitting
+        working-directory: api
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
+      API_DOMAIN: ${{ vars.API_DOMAIN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22 # wrangler needs 22.12 or later
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+
+      - run: uv run pytest
+
+      - name: Fill in this deployment's settings
+        # wrangler.jsonc stays a template in the repo; only this checkout gets your values
+        run: |
+          python3 - <<'EOF'
+          import os, pathlib
+          config = pathlib.Path("wrangler.jsonc")
+          text = config.read_text()
+          placeholder = "00000000-0000-0000-0000-000000000000"
+          assert placeholder in text, "wrangler.jsonc no longer has the database_id placeholder"
+          text = text.replace(placeholder, os.environ["D1_DATABASE_ID"])
+          if os.environ["API_DOMAIN"]:
+              # serve only from your domain, so its WAF rules can't be bypassed through workers.dev
+              text = text.replace('  "main":', '  "workers_dev": false,\n  "main":', 1)
+          config.write_text(text)
+          EOF
+
+      # migrations only ever add, so they go first and the running Worker keeps working
+      - run: uv run pywrangler d1 migrations apply boring-api --remote
+
+      - run: uv run pywrangler deploy ${API_DOMAIN:+--domain "$API_DOMAIN"}

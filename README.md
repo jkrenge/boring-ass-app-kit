@@ -66,7 +66,7 @@ uv run pywrangler secret put APPLE_KEY_ID
 uv run pywrangler secret put APPLE_DEVICECHECK_KEY < ~/Downloads/AuthKey_XXXXXXXXXX.p8
 ```
 
-After later changes, redeploy with `uv run pywrangler deploy`. Schema changes go in a new file in `api/migrations/`, followed by `migrations apply --remote`.
+After later changes, redeploy with `uv run pywrangler deploy`. Schema changes go in a new file in `api/migrations/`, followed by `migrations apply --remote`. To deploy on every push instead, see [Deploying from GitHub](#deploying-from-github).
 
 ### 2. Add the package to your app
 
@@ -191,6 +191,21 @@ FROM feedback f JOIN devices d ON d.id = f.device_id ORDER BY f.id DESC;
 In release builds, your own code shows up in crash stacks as raw addresses. Symbolicate them with the build's dSYM:
 `atos -o MyApp.app.dSYM/Contents/Resources/DWARF/MyApp -l <load address> <address>`.
 
+## Deploying from GitHub
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests, applies migrations and deploys the Worker on every push to `main` that changes `api/`. You can also run it by hand from the Actions tab. It does nothing until you configure it in your fork, under **Settings → Secrets and variables → Actions**:
+
+| Name | Kind | Value |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Secret | A Cloudflare API token from the **Edit Cloudflare Workers** template, with **Account → D1 → Edit** added |
+| `CLOUDFLARE_ACCOUNT_ID` | Variable | Your account ID, from the Cloudflare dashboard |
+| `D1_DATABASE_ID` | Variable | The `database_id` that `pywrangler d1 create` printed |
+| `API_DOMAIN` | Variable, optional | A hostname on a domain in your Cloudflare account, such as `api.example.com`. The Worker is then served only there, and `workers.dev` is turned off. |
+
+The workflow writes your database ID into its own copy of `wrangler.jsonc`, so the file in the repo stays a template. Set the Apple secrets once with `pywrangler secret put` as in the quick start. They stay on the Worker, and the workflow never sees them.
+
+**Set `API_DOMAIN` before you ship an app.** Apps call the URL they were built with, so turning off `workers.dev` cuts off every installed version that uses it.
+
 ## Privacy
 
 - **No user identity.** Each install gets a random token, and the Worker stores only its sha256. There's no advertising ID and no account ID. The Worker uses IP addresses for rate limiting and never writes them to D1. Cloudflare's own Worker logs, which `wrangler.jsonc` turns on, keep request details for a few days.
@@ -199,11 +214,28 @@ In release builds, your own code shows up in crash stacks as raw addresses. Symb
 
 ## Security model
 
-DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Even one registered device can write about 3,000 events a minute. That uses up the free plan's 100,000 row writes for the day within about half an hour, and could fill its 500 MB within an hour or so. There's no per-device daily quota yet. **This is meant to keep out casual junk, not a determined attacker.**
+DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Requests with a made-up token cost a Worker request and a D1 read each, and the free plan allows 100,000 Worker requests a day. Past that, the API stops answering until the daily reset, which costs data but no money. Even one registered device can write about 3,000 events a minute. That uses up the free plan's 100,000 row writes for the day within about half an hour, and could fill its 500 MB within an hour or so. There's no per-device daily quota yet. **This is meant to keep out casual junk, not a determined attacker.**
 
 The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which belongs in `api/.dev.vars` for local dev and never in production.
 
 **Revoking a token:** `UPDATE devices SET token_hash = 'revoked-' || id WHERE id = 42;`. This doesn't ban the device. On its next launch, the ping gets a 401 and a genuine device simply registers again. A real ban would need something that survives re-registration, such as DeviceCheck's two per-device bits, and that isn't built. The same ping is what lets every install recover if the database is ever reset.
+
+### Hardening on your own domain
+
+On your own domain, Cloudflare's WAF can drop junk before it reaches the Worker, so it never counts against your Worker or D1 quotas. WAF rules don't apply to `workers.dev`, which is why `API_DOMAIN` turns it off. The free plan includes both of these rules:
+
+1. **Custom rule** (Security → WAF → Custom rules) with the action **Block**. It blocks anything that isn't one of the kit's six API calls, and any call except registration that has no device token. The kit's apps never send either. Replace `api.example.com` with your API's hostname, so the rule leaves the rest of your domain alone:
+   ```
+   http.host eq "api.example.com" and (
+     not (http.request.method eq "POST" and http.request.uri.path in {"/v1/register" "/v1/ping" "/api/v0/events" "/api/v0/error" "/v1/crashes" "/v1/feedback"})
+     or (http.request.uri.path ne "/v1/register"
+         and not any(lower(http.request.headers.names[*])[*] eq "authorization")
+         and not any(lower(http.request.headers.names[*])[*] eq "app-key"))
+   )
+   ```
+2. **Rate limiting rule** (Security → WAF → Rate limiting rules). On the free plan it can only match the path, and it counts per IP over 10 seconds. Match `http.request.uri.path in {"/v1/register" "/v1/ping" "/api/v0/events" "/api/v0/error" "/v1/crashes" "/v1/feedback"}`, and block for 10 seconds at about 100 requests. Many phone users can share one IP behind their carrier's NAT, so keep the limit generous.
+
+Leave **Bot Fight Mode** off on the domain that serves the API. It challenges requests in a way a native app can't answer, it applies to the whole domain, and on the free plan no rule can exempt the API from it. DeviceCheck already does that job here.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 

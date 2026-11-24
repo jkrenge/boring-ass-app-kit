@@ -2,6 +2,11 @@
 
 This project follows [Semantic Versioning](https://semver.org). Until 1.0, a minor version (0.x) may include breaking changes, so pin with "Up to Next Minor".
 
+## Unreleased
+
+- A GitHub Actions workflow that tests, migrates and deploys the Worker on every push to `main`, optionally on your own domain with `workers.dev` turned off.
+- README: deploying from GitHub, and hardening your own domain with WAF rules.
+
 ## 0.1.1 (2026-11-23)
 
 - Security: the Worker's JSON depth check runs in linear time. Crafted input could cost it seconds of CPU per request, even on unauthenticated registration.
