@@ -50,7 +50,7 @@ public enum BoringKit {
         Aptabase.shared.initialize(appKey: "A-SH-\(token)", with: InitOptions(host: host))
     }
 
-    /// The newer version the Worker offers (`APPS` in api/src/kit.py), or nil. Waits for the launch ping.
+    /// The newer version the Worker offers (its `apps` table), or nil. Waits for the launch ping.
     /// `.updatePrompt()` uses this; call it directly for your own UI.
     public static func availableUpdate() async -> AppUpdate? { await updateCheck?.value }
 

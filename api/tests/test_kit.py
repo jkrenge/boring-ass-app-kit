@@ -119,17 +119,14 @@ def test_parse_version():
 
 
 def test_update_for():
-    apps = {"com.x.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1"}}
-    assert kit.update_for("com.x.app", {"version": "1.3.9"}, apps) == apps["com.x.app"]
+    app = {"version": "1.4.0", "url": "https://apps.apple.com/app/id1"}
+    assert kit.update_for(app, {"version": "1.3.9"}) == app
     for ping in [{"version": "1.4"}, {"version": "2.0"}, {"version": "?"}, {}, [], None]:
-        assert kit.update_for("com.x.app", ping, apps) is None
-    assert kit.update_for("com.other", {"version": "0.1"}, apps) is None
-    assert kit.update_for("com.x.app", {"version": "0.1"}, {"com.x.app": {"version": "oops", "url": ""}}) is None
-
-
-def test_configured_apps_are_valid():
-    for app in kit.APPS.values():  # a typo would quietly switch the prompt off
-        assert kit.parse_version(app["version"]) and app["url"].startswith("https://apps.apple.com/")
+        assert kit.update_for(app, ping) is None
+    assert kit.update_for(None, {"version": "0.1"}) is None  # app not in the table
+    # a typo in the table switches the prompt off rather than sending people somewhere odd
+    for bad in [{"version": "oops", "url": app["url"]}, {"version": "1.4", "url": "https://evil.example/"}, {}]:
+        assert kit.update_for(bad, {"version": "0.1"}) is None
 
 
 def test_parse_register_feedback_error():

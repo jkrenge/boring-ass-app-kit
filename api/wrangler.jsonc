@@ -7,9 +7,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "boring-api",
-      // from `uv run pywrangler d1 create boring-api`
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      // no database_id: the first deploy creates the database, and every command finds it by this name
+      "database_name": "boring-api"
     }
   ],
   // per Cloudflare location, approximate; namespace_id just has to be unique in your account

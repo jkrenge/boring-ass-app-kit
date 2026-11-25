@@ -1,5 +1,5 @@
 # Deploys the Worker in api/ to your Cloudflare account on every push to main that touches it.
-# It does nothing until you set CLOUDFLARE_ACCOUNT_ID and D1_DATABASE_ID; see "Deploy from GitHub" in the README.
+# It does nothing until you set CLOUDFLARE_ACCOUNT_ID; see "Deploying from GitHub" in the README.
 name: Deploy API
 
 on:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: vars.CLOUDFLARE_ACCOUNT_ID != '' && vars.D1_DATABASE_ID != ''
+    if: vars.CLOUDFLARE_ACCOUNT_ID != ''
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -26,7 +26,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID }}
       API_DOMAIN: ${{ vars.API_DOMAIN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,23 +36,27 @@ jobs:
 
       - run: uv run pytest
 
-      - name: Fill in this deployment's settings
-        # wrangler.jsonc stays a template in the repo; only this checkout gets your values
+      - name: Serve only from your domain
+        # so its WAF rules can't be bypassed through workers.dev; only this checkout changes
+        if: env.API_DOMAIN != ''
         run: |
           python3 - <<'EOF'
-          import os, pathlib
+          import pathlib
           config = pathlib.Path("wrangler.jsonc")
           text = config.read_text()
-          placeholder = "00000000-0000-0000-0000-000000000000"
-          assert placeholder in text, "wrangler.jsonc no longer has the database_id placeholder"
-          text = text.replace(placeholder, os.environ["D1_DATABASE_ID"])
-          if os.environ["API_DOMAIN"]:
-              # serve only from your domain, so its WAF rules can't be bypassed through workers.dev
-              text = text.replace('  "main":', '  "workers_dev": false,\n  "main":', 1)
-          config.write_text(text)
+          assert '  "main":' in text
+          config.write_text(text.replace('  "main":', '  "workers_dev": false,\n  "main":', 1))
           EOF
 
-      # migrations only ever add, so they go first and the running Worker keeps working
-      - run: uv run pywrangler d1 migrations apply boring-api --remote
+      # Migrations only ever add, so they go first and the running Worker keeps working. On the first run
+      # there is no database yet: deploy creates it, and the apply after it sets it up.
+      - name: Apply migrations
+        run: |
+          if uv run pywrangler d1 info boring-api > /dev/null 2>&1; then
+            uv run pywrangler d1 migrations apply boring-api --remote
+          fi
 
       - run: uv run pywrangler deploy ${API_DOMAIN:+--domain "$API_DOMAIN"}
+
+      - name: Apply migrations to a new database
+        run: uv run pywrangler d1 migrations apply boring-api --remote

@@ -53,20 +53,19 @@ flowchart LR
 
 **Apple:** in the developer portal, go to Certificates, IDs & Profiles → Keys and create a key with **DeviceCheck** enabled. Download `AuthKey_XXXXXXXXXX.p8`, and note its Key ID and your Team ID. One key covers every app in the team, and apps need no extra entitlement.
 
-**Cloudflare:** fork or clone this repo, then:
+**Cloudflare:** fork this repo (or see [Keeping your copy up to date](#keeping-your-copy-up-to-date) for a private copy), then:
 
 ```bash
 cd api
 uv run pywrangler login
-uv run pywrangler d1 create boring-api        # paste the database_id into wrangler.jsonc
+uv run pywrangler deploy                      # creates the database, prints https://boring-api.<subdomain>.workers.dev
 uv run pywrangler d1 migrations apply boring-api --remote
-uv run pywrangler deploy                      # prints https://boring-api.<subdomain>.workers.dev
 uv run pywrangler secret put APPLE_TEAM_ID
 uv run pywrangler secret put APPLE_KEY_ID
 uv run pywrangler secret put APPLE_DEVICECHECK_KEY < ~/Downloads/AuthKey_XXXXXXXXXX.p8
 ```
 
-After later changes, redeploy with `uv run pywrangler deploy`. Schema changes go in a new file in `api/migrations/`, followed by `migrations apply --remote`. To deploy on every push instead, see [Deploying from GitHub](#deploying-from-github).
+The first deploy writes the new database's ID into `wrangler.jsonc`. Discard that change with `git checkout wrangler.jsonc`: every command finds the database by name, and a copy without changes takes updates without conflicts. To deploy on every push instead, see [Deploying from GitHub](#deploying-from-github).
 
 ### 2. Add the package to your app
 
@@ -138,13 +137,13 @@ if let update = await BoringKit.availableUpdate() { /* update.version, update.ur
 
 ### Telling users about an update
 
-Once a release is live on the App Store, set its version in `APPS` in [`api/src/kit.py`](api/src/kit.py) and run `uv run pywrangler deploy`:
+Once a release is live on the App Store, set its version in the `apps` table. It takes effect right away, with no deploy:
 
-```python
-APPS = {
-    "com.you.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1234567890"},
-}
+```bash
+uv run pywrangler d1 execute boring-api --remote --command "INSERT OR REPLACE INTO apps (bundle_id, version, url) VALUES ('com.you.app', '1.4.0', 'https://apps.apple.com/app/id1234567890')"
 ```
+
+The table only takes `https://apps.apple.com/` links. A version that isn't up to three numbers, such as `1.4.0`, switches the prompt off for that app.
 
 On their next launch, users on an older version get an "Update available" alert with **Update**, which opens the App Store, and **Not now**. It asks again on every launch until they update. Bump the version only after the release is live, or the App Store won't have the update yet when users get there. A phased release is fine, because users can always update by hand.
 
@@ -193,18 +192,36 @@ In release builds, your own code shows up in crash stacks as raw addresses. Symb
 
 ## Deploying from GitHub
 
-[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests, applies migrations and deploys the Worker on every push to `main` that changes `api/`. You can also run it by hand from the Actions tab. It does nothing until you configure it in your fork, under **Settings → Secrets and variables → Actions**:
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests, applies migrations and deploys the Worker on every push to `main` that changes `api/`. You can also run it by hand from the Actions tab. GitHub turns Actions off in a new fork, so turn them on in its **Actions** tab first. The workflow does nothing until you configure it, under **Settings → Secrets and variables → Actions**:
 
 | Name | Kind | Value |
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Secret | A Cloudflare API token from the **Edit Cloudflare Workers** template, with **Account → D1 → Edit** added |
 | `CLOUDFLARE_ACCOUNT_ID` | Variable | Your account ID, from the Cloudflare dashboard |
-| `D1_DATABASE_ID` | Variable | The `database_id` that `pywrangler d1 create` printed |
 | `API_DOMAIN` | Variable, optional | A hostname on a domain in your Cloudflare account, such as `api.example.com`. The Worker is then served only there, and `workers.dev` is turned off. |
 
-The workflow writes your database ID into its own copy of `wrangler.jsonc`, so the file in the repo stays a template. Set the Apple secrets once with `pywrangler secret put` as in the quick start. They stay on the Worker, and the workflow never sees them.
+The first run creates the D1 database and the Worker. Then set the Apple secrets once with `pywrangler secret put`, as in the quick start. They stay on the Worker, and the workflow never sees them.
 
 **Set `API_DOMAIN` before you ship an app.** Apps call the URL they were built with, so turning off `workers.dev` cuts off every installed version that uses it.
+
+## Keeping your copy up to date
+
+Everything specific to your deployment lives outside the code: app versions in D1, keys in Worker secrets, and deploy settings in GitHub variables. So your copy never needs to differ from this repo.
+
+- **A fork:** click **Sync fork** on GitHub. With the workflow set up, that push deploys the new Worker.
+- **Without the workflow:** `git pull`, then in `api/` run `uv run pywrangler d1 migrations apply boring-api --remote` and `uv run pywrangler deploy`.
+- **A private copy:** a fork of a public repo is public. That's fine, since nothing private goes in it, but if you'd rather keep yours private, make an empty private repo and push a clone of this one to it:
+
+  ```bash
+  git clone https://github.com/jkrenge/boring-ass-app-kit boring-api && cd boring-api
+  git remote rename origin upstream
+  git remote add origin https://github.com/<you>/boring-api
+  git push -u origin main
+  ```
+
+  To update, run `git pull upstream main && git push`.
+
+**Update the Worker before the package in your apps.** The Worker API only ever grows, so older apps keep working with a newer Worker, but a newer BoringKit may call something an older Worker doesn't have. The [changelog](CHANGELOG.md) marks Worker changes with "Worker:".
 
 ## Privacy
 

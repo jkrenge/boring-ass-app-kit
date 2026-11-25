@@ -58,8 +58,11 @@ class Default(WorkerEntrypoint):
                     return await self.register(kit.parse_register(data))
                 case "/v1/ping":
                     # reaching here means the token is valid; the reply also offers a newer version
-                    bundle_id = await self.sql("SELECT bundle_id FROM devices WHERE id = ?", device_id).first("bundle_id")
-                    return Response.json({"ok": True, "update": kit.update_for(bundle_id, data)})
+                    app = await self.sql(
+                        "SELECT a.version, a.url FROM devices d JOIN apps a ON a.bundle_id = d.bundle_id WHERE d.id = ?",
+                        device_id,
+                    ).first()
+                    return Response.json({"ok": True, "update": kit.update_for(app, data)})
                 case "/api/v0/events":
                     await self.save_events(device_id, kit.parse_events(data))
                 case "/api/v0/error":

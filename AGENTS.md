@@ -94,7 +94,7 @@ For your own UI, `await BoringKit.sendFeedback(message, email: optionalEmail)` r
 
 `.updatePrompt()` goes on the root view, once. When the Worker reports a newer version, it shows an alert with **Update**, which opens the App Store, and **Not now**. For custom UI, `await BoringKit.availableUpdate()` returns an `AppUpdate?` with `version` and `url`.
 
-The prompt only appears for apps listed in `APPS` in `api/src/kit.py` of the user's Worker. Tell the user to add an entry when they release, with the version and the App Store URL `https://apps.apple.com/app/id<number>`, and then deploy.
+The prompt only appears for apps that have a row in the `apps` table of the user's D1 database. Tell the user to set one when they release, with the version and the App Store URL `https://apps.apple.com/app/id<number>`. The command is under "Telling users about an update" in the README, and it needs no deploy.
 
 ### 7. Finish up
 
@@ -126,6 +126,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md). The essentials:
 
 - `api/src/kit.py` holds the pure logic and has pytest tests (`cd api && uv run pytest`). `api/src/entry.py` is the Worker glue. Validate everything devices send in `kit.py`.
 - Keep the Worker API additive-only, because old app versions keep calling it.
+- Keep per-deployment settings out of the code, in D1, Worker secrets or GitHub variables, so people's copies of the repo take updates without conflicts.
 - Build the Swift package with `xcodebuild build -scheme BoringKit -destination "generic/platform=iOS Simulator"`. It must have no warnings under Swift 6 strict concurrency.
 - `scripts/integration-test.sh` runs the full app-to-D1 path against a local Worker.
 - Don't deploy, push, or run anything with `--remote` unless the user asks. Secrets go through `pywrangler secret put`, never into files.

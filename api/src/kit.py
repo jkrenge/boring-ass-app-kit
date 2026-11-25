@@ -16,12 +16,6 @@ LIMITS = {
     "/v1/feedback": 32_000,
 }
 
-# Newest version of each app, by bundle id. On launch, devices on an older version are asked to update
-# and linked to `url`. Bump it once the release is live on the App Store, then deploy.
-APPS: dict[str, dict] = {
-    # "com.you.app": {"version": "1.4.0", "url": "https://apps.apple.com/app/id1234567890"},
-}
-
 MAX_DEPTH = 64
 # The closing quote is optional, so an unterminated string runs to the end in one match. With a required
 # quote, each `"` would rescan to the end and fail: quadratic time on input like \"\"\"...
@@ -172,12 +166,14 @@ def parse_version(value) -> tuple[int, int, int] | None:
     return tuple(parts + [0] * (3 - len(parts)))
 
 
-def update_for(bundle_id: str, ping, apps: dict = APPS) -> dict | None:
-    """The update to offer a device whose ping body is {"version": "1.3"}, or None."""
-    app = apps.get(bundle_id)
+def update_for(app: dict | None, ping) -> dict | None:
+    """The update to offer a device whose ping body is {"version": "1.3"}, given its app's row in `apps`, or None."""
     current = parse_version(ping.get("version")) if isinstance(ping, dict) else None  # old apps send {}
-    latest = parse_version(app["version"]) if app else None
-    return app if current and latest and latest > current else None
+    latest = parse_version(app.get("version")) if app else None
+    url = app.get("url") if app else None
+    if not (current and latest and isinstance(url, str) and url.startswith("https://apps.apple.com/")):
+        return None
+    return {"version": app["version"], "url": url} if latest > current else None
 
 
 def parse_crash(data) -> dict:

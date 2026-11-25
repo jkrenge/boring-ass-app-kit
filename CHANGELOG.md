@@ -4,8 +4,10 @@ This project follows [Semantic Versioning](https://semver.org). Until 1.0, a min
 
 ## Unreleased
 
+- Worker: the newest version of each app lives in an `apps` table in D1 instead of `APPS` in `api/src/kit.py`. Releasing a version is one SQL command with no deploy, and your copy of the repo needs no code edits. If you set `APPS`, apply the migrations and insert each entry; see "Telling users about an update" in the README.
+- Worker: `wrangler.jsonc` has no `database_id`. The first deploy creates the database, and every command finds it by name. If you pasted an ID into the file, take this version when you update: it finds the same database.
 - A GitHub Actions workflow that tests, migrates and deploys the Worker on every push to `main`, optionally on your own domain with `workers.dev` turned off.
-- README: deploying from GitHub, and hardening your own domain with WAF rules.
+- README: deploying from GitHub, keeping your copy up to date, and hardening your own domain with WAF rules.
 
 ## 0.1.1 (2026-11-23)
 
