@@ -18,10 +18,21 @@ private struct UpdatePrompt: ViewModifier {
                 showing = update != nil
             }
             .alert("Update available", isPresented: $showing, presenting: update) { update in
-                Button("Update") { openURL(update.url) }
+                Button("Update") { openURL(storeURL(update.url)) }
                 Button("Not now", role: .cancel) {}
             } message: { update in
                 Text("Version \(update.version) is on the App Store.")
             }
+    }
+
+    private func storeURL(_ url: URL) -> URL {
+        #if os(macOS)
+            // macappstore:// opens the App Store app; https would open the web page in a browser
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.scheme = "macappstore"
+            return components?.url ?? url
+        #else
+            return url
+        #endif
     }
 }

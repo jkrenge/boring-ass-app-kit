@@ -25,8 +25,10 @@ public struct FeedbackView: View {
                 Section {
                     TextField("Email (optional)", text: $email)
                         .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
+                        #if os(iOS)
+                            .keyboardType(.emailAddress)
+                            .textInputAutocapitalization(.never)
+                        #endif
                         .autocorrectionDisabled()
                 } footer: {
                     Text("Only if you'd like a reply.")
@@ -41,8 +43,13 @@ public struct FeedbackView: View {
                     }
                 }
             }
+            .formStyle(.grouped)  // the iOS look; a Mac would lay the form out like a settings pane
             .navigationTitle("Feedback")
-            .navigationBarTitleDisplayMode(.inline)
+            #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+            #else
+                .frame(minWidth: 420, minHeight: 380)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

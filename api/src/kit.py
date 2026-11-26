@@ -123,6 +123,7 @@ def parse_register(data) -> dict:
     data = _obj(data)
     return {
         "bundle_id": _str(data, "bundleId", 200),
+        "platform": _str(data, "platform", 20, required=False) or "iOS",  # apps before 0.2 send none
         "device_check_token": _str(data, "deviceCheckToken", 6_000, required=False),
         "development": data.get("development") is True,
     }

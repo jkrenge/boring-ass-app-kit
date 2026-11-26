@@ -1,9 +1,10 @@
 # Boring Ass App Kit
 
-**The boring stuff every iOS app needs: crash reports, usage analytics, user feedback and update prompts. It all goes to your own Cloudflare Worker, with no paid product and no third-party SDK vendor.**
+**The boring stuff every iOS and macOS app needs: crash reports, usage analytics, user feedback and update prompts. It all goes to your own Cloudflare Worker, with no paid product and no third-party SDK vendor.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![iOS 16+](https://img.shields.io/badge/iOS-16%2B-lightgrey.svg)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-lightgrey.svg)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange.svg)
 ![Cloudflare Workers](https://img.shields.io/badge/API-Cloudflare%20Workers%20(Python)-f38020.svg)
 
@@ -13,7 +14,7 @@ One Swift package goes into every app you make. One small Python Worker on Cloud
 
 | Feature | How |
 |---|---|
-| **Crash reporting** | [KSCrash](https://github.com/kstenerud/KSCrash) catches signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills. Its MetricKit monitor adds the crash reports iOS collects itself. |
+| **Crash reporting** | [KSCrash](https://github.com/kstenerud/KSCrash) catches signals, Mach and ObjC/C++ exceptions, hangs and watchdog kills. Its MetricKit monitor adds the crash reports the system collects itself. |
 | **Usage analytics** | [aptabase-swift](https://github.com/aptabase/aptabase-swift) events and sessions, pointed at your Worker instead of Aptabase's cloud. |
 | **Handled errors** | `Aptabase.shared.trackError(error)` for the errors you catch but didn't expect. |
 | **User feedback** | `FeedbackView`, a ready-made SwiftUI sheet with an optional reply email, or `BoringKit.sendFeedback(_:)` for your own UI. |
@@ -25,7 +26,7 @@ One Swift package goes into every app you make. One small Python Worker on Cloud
 
 ```mermaid
 flowchart LR
-    App["Your iOS app<br/>BoringKit: KSCrash, MetricKit, Aptabase"]
+    App["Your iOS or macOS app<br/>BoringKit: KSCrash, MetricKit, Aptabase"]
     Worker["Cloudflare Worker<br/>(Python)"]
     Apple["Apple DeviceCheck"]
     DB[("D1<br/>SQLite")]
@@ -42,7 +43,7 @@ flowchart LR
 
 ## Requirements
 
-- iOS 16 or later, and Xcode 16 or later (Swift 6)
+- iOS 16 or macOS 14 or later, and Xcode 16 or later (Swift 6)
 - A Cloudflare account. The free plan is enough for small apps; see the [Workers](https://developers.cloudflare.com/workers/platform/limits/) and [D1](https://developers.cloudflare.com/d1/platform/limits/) limits.
 - An Apple Developer Program membership, for the DeviceCheck key
 - [uv](https://docs.astral.sh/uv/) and Node, to deploy the Worker
@@ -81,6 +82,8 @@ Or, in a `Package.swift`:
 .product(name: "BoringKit", package: "boring-ass-app-kit"),
 ```
 
+A sandboxed Mac app also needs **Outgoing Connections (Client)** under Signing & Capabilities → App Sandbox. Without it, nothing reaches the Worker.
+
 ### 3. Start it
 
 ```swift
@@ -108,7 +111,7 @@ That's enough for crash reports and the update prompt. Add events, errors and fe
 Paste this into Claude Code, Codex, Cursor or another coding agent, from your app's repo:
 
 ```text
-Add Boring Ass App Kit to this iOS app: crash reporting, analytics, handled errors,
+Add Boring Ass App Kit to this app: crash reporting, analytics, handled errors,
 a feedback screen and an update prompt. Follow the integration guide at
 https://raw.githubusercontent.com/jkrenge/boring-ass-app-kit/main/AGENTS.md
 My Worker URL is https://boring-api.<subdomain>.workers.dev
@@ -145,7 +148,13 @@ Once a release is live on the App Store, set its version in the `apps` table. It
 uv run pywrangler d1 execute boring-api --remote --command "INSERT OR REPLACE INTO apps (bundle_id, version, url) VALUES ('com.you.app', '1.4.0', 'https://apps.apple.com/app/id1234567890')"
 ```
 
-The table only takes `https://apps.apple.com/` links. A version that isn't up to three numbers, such as `1.4.0`, switches the prompt off for that app.
+A Mac app gets its own row with `platform` set to `macOS`, even when it shares its iPhone app's bundle ID:
+
+```bash
+uv run pywrangler d1 execute boring-api --remote --command "INSERT OR REPLACE INTO apps (bundle_id, platform, version, url) VALUES ('com.you.app', 'macOS', '1.4.0', 'https://apps.apple.com/app/id1234567890')"
+```
+
+On a Mac, **Update** opens the Mac App Store. The table only takes `https://apps.apple.com/` links, so a Mac app sold outside the Mac App Store gets no row and no prompt. A version that isn't up to three numbers, such as `1.4.0`, switches the prompt off for that app.
 
 On their next launch, users on an older version get an "Update available" alert with **Update**, which opens the App Store, and **Not now**. It asks again on every launch until they update. Bump the version only after the release is live, or the App Store won't have the update yet when users get there. A phased release is fine, because users can always update by hand.
 
@@ -154,10 +163,10 @@ On their next launch, users on an older version get an "Update available" alert 
 Use the Cloudflare dashboard (D1 → `boring-api` → Console), or run `uv run pywrangler d1 execute boring-api --remote --json --command "…"`. Keep `--json` on: the Worker strips control characters, but rows an older Worker stored may still hold terminal escape codes a device sent, and the JSON output escapes them.
 
 ```sql
--- daily active devices per app (release builds)
-SELECT d.bundle_id, date(e.ts) AS day, count(DISTINCT e.device_id) AS devices, count(*) AS events
+-- daily active devices per app and platform (release builds)
+SELECT d.bundle_id, d.platform, date(e.ts) AS day, count(DISTINCT e.device_id) AS devices, count(*) AS events
 FROM events e JOIN devices d ON d.id = e.device_id
-WHERE e.is_debug = 0 GROUP BY 1, 2 ORDER BY day DESC;
+WHERE e.is_debug = 0 GROUP BY 1, 2, 3 ORDER BY day DESC;
 
 -- which versions people are on (last 30 days)
 SELECT d.bundle_id, json_extract(e.system, '$.appVersion') AS version, count(DISTINCT e.device_id) AS devices
@@ -235,7 +244,7 @@ Everything specific to your deployment lives outside the code: app versions in D
 
 DeviceCheck shows that a registration came from a real Apple device. It doesn't prove the request came from your unmodified app; App Attest would, at much more cost. The bundle ID is self-reported. Cloudflare's rate limits (about 120 requests a minute per device, with large crash reports counting for more, and 10 registrations a minute per IP) are approximate and counted per location, so they slow a flood down but don't cap storage. Requests with a made-up token cost a Worker request and a D1 read each, and the free plan allows 100,000 Worker requests a day. Past that, the API stops answering until the daily reset, which costs data but no money. Even one registered device can write about 3,000 events a minute. That uses up the free plan's 100,000 row writes for the day within about half an hour, and could fill its 500 MB within an hour or so. There's no per-device daily quota yet. **This is meant to keep out casual junk, not a determined attacker.**
 
-The Simulator can't make DeviceCheck tokens. The Worker accepts tokenless registration only when `ALLOW_UNATTESTED=true`, which belongs in `api/.dev.vars` for local dev and never in production.
+The Simulator can't make DeviceCheck tokens. With `ALLOW_UNATTESTED=true`, the Worker registers every device without asking Apple. It belongs in `api/.dev.vars` for local dev and never in production.
 
 **Revoking a token:** `UPDATE devices SET token_hash = 'revoked-' || id WHERE id = 42;`. This doesn't ban the device. On its next launch, the ping gets a 401 and a genuine device simply registers again. A real ban would need something that survives re-registration, such as DeviceCheck's two per-device bits, and that isn't built. The same ping is what lets every install recover if the database is ever reset.
 
@@ -260,7 +269,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Local development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for running the Worker locally, the unit tests, and the Simulator integration test that checks every kind of data reaches D1.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running the Worker locally, the unit tests, and the integration test that checks every kind of data reaches D1.
 
 ## Built on
 

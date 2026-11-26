@@ -7,7 +7,7 @@ Thanks for helping. This kit stays useful by staying small, so the best changes 
 | Path | What |
 |---|---|
 | `Package.swift`, `Sources/BoringKit/` | The Swift package apps depend on |
-| `Tests/BoringKitTests/` | Integration test that runs in the Simulator against a local Worker |
+| `Tests/BoringKitTests/` | Integration test that runs in the Simulator or on this Mac against a local Worker |
 | `api/src/entry.py` | Worker routes and the glue to D1, Apple and rate limits |
 | `api/src/kit.py` | Pure helpers: request validation, tokens, JWT, version checks. Unit-tested with pytest. |
 | `api/migrations/` | D1 schema, one file per change |
@@ -20,7 +20,7 @@ You need Xcode 16 or later, [uv](https://docs.astral.sh/uv/) and Node (wrangler 
 
 ```bash
 cd api
-echo 'ALLOW_UNATTESTED=true' > .dev.vars     # lets the Simulator register without DeviceCheck
+echo 'ALLOW_UNATTESTED=true' > .dev.vars     # lets devices register without asking Apple
 uv run pywrangler d1 migrations apply boring-api --local
 uv run pywrangler dev                         # http://127.0.0.1:8787
 ```
@@ -38,7 +38,15 @@ xcodebuild build -scheme BoringKit -destination "generic/platform=iOS Simulator"
 ```
 
 ```bash
+xcodebuild build -scheme BoringKit -destination "generic/platform=macOS"
+```
+
+```bash
 scripts/integration-test.sh "iPhone 17 Pro"   # needs the local Worker from Setup running
+```
+
+```bash
+scripts/integration-test.sh macOS
 ```
 
 The Swift build should have no warnings. The package uses Swift 6 strict concurrency.
@@ -60,7 +68,8 @@ Keep each one to one change, and say what it fixes and how you checked it. Add a
 ## Releasing
 
 1. Move the `CHANGELOG.md` entries under the new version number.
-2. Tag the commit with the version, such as `0.2.0`, and push the tag. Swift Package Manager resolves versions from tags.
-3. This repo deploys nothing: each user runs their own Worker. Start each changelog entry for a Worker change with "Worker:", so people know to update their Worker before the package.
+2. For a new minor version, raise the version in the install instructions in README.md, AGENTS.md and docs.
+3. Tag the commit with the version, such as `0.2.0`, and push the tag. Swift Package Manager resolves versions from tags.
+4. This repo deploys nothing: each user runs their own Worker. Start each changelog entry for a Worker change with "Worker:", so people know to update their Worker before the package.
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).

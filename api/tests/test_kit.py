@@ -131,9 +131,11 @@ def test_update_for():
 
 def test_parse_register_feedback_error():
     assert kit.parse_register({"bundleId": "com.x.app"}) == {
-        "bundle_id": "com.x.app", "device_check_token": None, "development": False}
-    with pytest.raises(ValueError):
-        kit.parse_register({"bundleId": 5})
+        "bundle_id": "com.x.app", "platform": "iOS", "device_check_token": None, "development": False}
+    assert kit.parse_register({"bundleId": "com.x.app", "platform": "macOS"})["platform"] == "macOS"
+    for bad in [{"bundleId": 5}, {"bundleId": "com.x.app", "platform": 1}, {"bundleId": "com.x.app", "platform": "x" * 21}]:
+        with pytest.raises(ValueError):
+            kit.parse_register(bad)
     assert kit.parse_feedback({"message": "hi", "appVersion": "1.0"})["meta"]["appVersion"] == "1.0"
     with pytest.raises(ValueError):
         kit.parse_feedback({"message": ""})

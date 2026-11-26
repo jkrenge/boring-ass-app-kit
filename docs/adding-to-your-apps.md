@@ -6,8 +6,8 @@ This guide takes you from nothing to apps that send crash reports, events and fe
 
 - **One Worker serves all your apps.** Deploy it once. Each app's data is stored under its bundle ID.
 - **One Apple team per Worker.** The Worker holds one team's DeviceCheck key, and Apple only accepts tokens from apps signed by that team. An app signed by another team can't register, so it sends nothing, not even crash reports. Sign every app that shares a Worker with the same team. The Worker doesn't support several teams yet.
-- **iOS only.** BoringKit doesn't build for macOS, watchOS, tvOS or visionOS. An app that also has a Mac version gets the kit in its iOS target only, and the Mac version sends nothing.
-- **The Simulator can't register** with the deployed Worker, because it can't make DeviceCheck tokens. Test on a real device, or against a local Worker as described in [CONTRIBUTING.md](../CONTRIBUTING.md).
+- **iOS and macOS.** BoringKit supports iOS 16 and macOS 14 or later, but not watchOS, tvOS or visionOS. A Mac app may share its iPhone app's bundle ID: the Worker keeps each device's platform, and each platform gets its own update prompt row.
+- **The Simulator can't register** with the deployed Worker, because it can't make DeviceCheck tokens. Test on a real device or a Mac, or against a local Worker as described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 - **Your privacy promises change.** If an app's privacy policy, website, App Store description, README or contributor rules say it collects nothing, has no analytics, talks to no server or uses no third-party code, they stop being true. Plan to rewrite them before the first release with the kit.
 
 ## 1. Deploy the Worker (once)
@@ -92,32 +92,32 @@ Find every place that promises no analytics, no data collection, no server or no
 third-party code, and show me new wording for each before you commit.
 ```
 
-[AGENTS.md](../AGENTS.md) covers Xcode projects, `Package.swift`, XcodeGen and Tuist, as well as apps with a Mac target. When you review the agent's work, check these:
+[AGENTS.md](../AGENTS.md) covers Xcode projects, `Package.swift`, XcodeGen and Tuist, on iOS and on the Mac. When you review the agent's work, check these:
 
 - **The events answer real questions.** A handful of key actions and screens, not every tap.
 - **No personal data.** This matters most in apps that hold people's content or accounts: notes, tasks, messages, calendars, email. Event props should be counts, flags and fixed names, never titles, text people typed, list names, IDs or email addresses. The same goes for `trackError`: errors from a server API often carry IDs or email addresses in their message, so don't send those raw.
-- **Only the iOS target links the package**, if the app also builds for the Mac. In code the Mac target shares, kit calls sit inside `#if os(iOS)`.
-- **The privacy wording is true.** It should say the app sends crash reports, usage events and feedback to your own server, that none of it is linked to the user, and, for an app with a Mac version, that the Mac version sends nothing.
+- **A sandboxed Mac app has network access.** It needs the Outgoing Connections (Client) entitlement, or nothing reaches the Worker.
+- **The privacy wording is true.** It should say the app sends crash reports, usage events and feedback to your own server, and that none of it is linked to the user.
 
 To set it up by hand instead, follow the README's [Quick start](../README.md#2-add-the-package-to-your-app) from step 2.
 
 ## 3. Test on a device
 
-1. Run a Debug build on a real iPhone or iPad from Xcode. Debug builds use Apple's development DeviceCheck server, and TestFlight and App Store builds use the production one. The Worker handles both.
+1. Run a Debug build from Xcode on a real iPhone or iPad, or on your Mac. Debug builds use Apple's development DeviceCheck server, and TestFlight and App Store builds use the production one. The Worker handles both.
 2. Check that the device registered:
    ```bash
    uv run pywrangler d1 execute boring-api --remote --json --command "SELECT id, bundle_id, attested, created_at FROM devices ORDER BY id DESC LIMIT 5"
    ```
    If no row appears, run `uv run pywrangler tail` and launch the app again. A `devicecheck rejected` line means Apple refused the token. Check the three Apple secrets, and that the app is signed by the key's team.
 3. Use the app for a minute, send feedback from the sheet, then check the `events` and `feedback` tables. The README's [Reading your data](../README.md#reading-your-data) has the queries. Events from Debug builds have `is_debug = 1`.
-4. To test crash reporting, stop the app in Xcode, then launch it from the home screen. Crash reporters can't catch a crash while the debugger is attached. Crash the app, for example with a temporary button that calls `fatalError()`, then launch it again. The report arrives in `crashes`.
+4. To test crash reporting, stop the app in Xcode, then launch it from the home screen or the Dock. Crash reporters can't catch a crash while the debugger is attached. Crash the app, for example with a temporary button that calls `fatalError()`, then launch it again. The report arrives in `crashes`.
 
 ## 4. Before you release
 
 - **Privacy policy, website and App Store description:** publish the new wording.
 - **App Store privacy label:** declare Crash Data, Performance Data, Product Interaction and Other Diagnostic Data, none of them linked to the user's identity. Add Email Address if you keep the optional email in the feedback form.
 - **Privacy manifest:** if the app's own `PrivacyInfo.xcprivacy` declares that it collects no data, add the same data types. KSCrash and Aptabase ship their own manifests.
-- **Update prompt:** once the release is live on the App Store, add the app's row to the `apps` table, as described in [Telling users about an update](../README.md#telling-users-about-an-update). Do the same for every later release. TestFlight builds have no App Store link, so don't add a row for them.
+- **Update prompt:** once the release is live on the App Store, add the app's row to the `apps` table, as described in [Telling users about an update](../README.md#telling-users-about-an-update). A Mac app gets its own row. Do the same for every later release. TestFlight builds have no App Store link, so don't add a row for them.
 
 ## Keeping it running
 

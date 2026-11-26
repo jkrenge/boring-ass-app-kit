@@ -3,7 +3,6 @@ import DeviceCheck
 import Foundation
 import KSCrashMonitors
 import KSCrashRecording
-import UIKit
 
 /// Crash reporting (KSCrash + MetricKit), analytics and handled errors (Aptabase) and feedback,
 /// all sent to the boring-api Worker.
@@ -73,7 +72,7 @@ public enum BoringKit {
         var body: [String: Any] = [
             "message": message,
             "appVersion": appVersion,
-            "osVersion": UIDevice.current.systemVersion,
+            "osVersion": osVersion,
             "deviceModel": deviceModel,
             "isDebug": isDebug,
         ]
@@ -100,7 +99,9 @@ public enum BoringKit {
     private static var registration: Task<String?, Never>?
 
     private static func register() async -> String? {
-        var body: [String: Any] = ["bundleId": Bundle.main.bundleIdentifier ?? "", "development": isDebug]
+        var body: [String: Any] = [
+            "bundleId": Bundle.main.bundleIdentifier ?? "", "platform": platform, "development": isDebug,
+        ]
         // DeviceCheck is unsupported on the Simulator; the Worker only accepts that with ALLOW_UNATTESTED
         if DCDevice.current.isSupported, let dcToken = try? await DCDevice.current.generateToken() {
             body["deviceCheckToken"] = dcToken.base64EncodedString()
@@ -179,10 +180,33 @@ public enum BoringKit {
         "\(shortVersion) (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))"
     }
 
+    // a Mac app can share its iPhone app's bundle ID, so the Worker keeps devices and versions per platform
+    private static var platform: String {
+        #if os(macOS)
+            "macOS"
+        #else
+            "iOS"
+        #endif
+    }
+
+    private static var osVersion: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion)" + (v.patchVersion > 0 ? ".\(v.patchVersion)" : "")
+    }
+
     private static var deviceModel: String {
-        var info = utsname()
-        uname(&info)
-        return withUnsafeBytes(of: info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        #if os(macOS)
+            // uname says only "arm64" on a Mac; hw.model is the model, such as Mac14,2
+            var size = 0
+            sysctlbyname("hw.model", nil, &size, nil, 0)
+            var model = [UInt8](repeating: 0, count: size)
+            sysctlbyname("hw.model", &model, &size, nil, 0)
+            return String(decoding: model.prefix { $0 != 0 }, as: UTF8.self)
+        #else
+            var info = utsname()
+            uname(&info)
+            return withUnsafeBytes(of: info.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        #endif
     }
 
     private static var isDebug: Bool {
@@ -202,9 +226,18 @@ public struct AppUpdate: Decodable, Sendable {
 
 private enum Keychain {
     private static var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "BoringKit",
-         kSecAttrAccount as String: "device-token"]
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "BoringKit",
+            kSecAttrAccount as String: "device-token",
+        ]
+        #if os(macOS)
+            // the iOS-style keychain, which never asks the user for access.
+            // shortcut: it needs a team-signed app, so an ad-hoc signed build can't keep the token and registers
+            // again on every launch; fall back to the login keychain if that ever matters
+            query[kSecUseDataProtectionKeychain as String] = true
+        #endif
+        return query
     }
 
     static func read() -> String? {

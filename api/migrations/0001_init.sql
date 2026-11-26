@@ -2,6 +2,7 @@ CREATE TABLE devices (
   id INTEGER PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE, -- sha256 of the device's bearer token; overwrite it to revoke a device
   bundle_id TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'iOS', -- iOS or macOS; a Mac app can share its iPhone app's bundle ID
   attested INTEGER NOT NULL,       -- 1 = Apple DeviceCheck said genuine, 0 = ALLOW_UNATTESTED (local dev)
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

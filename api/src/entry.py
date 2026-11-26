@@ -59,7 +59,8 @@ class Default(WorkerEntrypoint):
                 case "/v1/ping":
                     # reaching here means the token is valid; the reply also offers a newer version
                     app = await self.sql(
-                        "SELECT a.version, a.url FROM devices d JOIN apps a ON a.bundle_id = d.bundle_id WHERE d.id = ?",
+                        "SELECT a.version, a.url FROM devices d"
+                        " JOIN apps a ON a.bundle_id = d.bundle_id AND a.platform = d.platform WHERE d.id = ?",
                         device_id,
                     ).first()
                     return Response.json({"ok": True, "update": kit.update_for(app, data)})
@@ -126,16 +127,19 @@ class Default(WorkerEntrypoint):
         ).run()
 
     async def register(self, req: dict):
-        if req["device_check_token"]:
+        # local dev only: register without asking Apple. Macs send a DeviceCheck token even then,
+        # and a local Worker has no Apple key to check it with.
+        attested = getattr(self.env, "ALLOW_UNATTESTED", "") != "true"
+        if attested:
+            if not req["device_check_token"]:
+                return error(403, "device check token required")
             if not await self.apple_says_genuine(req["device_check_token"], req["development"]):
                 return error(403, "device check failed")
-        elif getattr(self.env, "ALLOW_UNATTESTED", "") != "true":
-            return error(403, "device check token required")
 
         token = kit.new_token()
         await self.sql(
-            "INSERT INTO devices (token_hash, bundle_id, attested) VALUES (?, ?, ?)",
-            kit.hash_token(token), req["bundle_id"], int(bool(req["device_check_token"])),
+            "INSERT INTO devices (token_hash, bundle_id, platform, attested) VALUES (?, ?, ?, ?)",
+            kit.hash_token(token), req["bundle_id"], req["platform"], int(attested),
         ).run()
         return Response.json({"token": token})
 

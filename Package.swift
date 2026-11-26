@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "BoringKit",
-    platforms: [.iOS(.v16)],
+    platforms: [.iOS(.v16), .macOS(.v14)],
     products: [.library(name: "BoringKit", targets: ["BoringKit"])],
     dependencies: [
         .package(url: "https://github.com/kstenerud/KSCrash.git", .upToNextMinor(from: "2.6.1")),
