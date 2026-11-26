@@ -72,12 +72,12 @@ The first deploy writes the new database's ID into `wrangler.jsonc`. Discard tha
 
 ### 2. Add the package to your app
 
-In Xcode, choose **File → Add Package Dependencies…**, enter `https://github.com/jkrenge/boring-ass-app-kit`, set the rule to **Up to Next Minor Version** from `0.1.0`, and add **BoringKit** to your app target.
+In Xcode, choose **File → Add Package Dependencies…**, enter `https://github.com/jkrenge/boring-ass-app-kit`, set the rule to **Up to Next Minor Version** from `0.2.0`, and add **BoringKit** to your app target.
 
 Or, in a `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/jkrenge/boring-ass-app-kit", .upToNextMinor(from: "0.1.0")),
+.package(url: "https://github.com/jkrenge/boring-ass-app-kit", .upToNextMinor(from: "0.2.0")),
 // target dependency:
 .product(name: "BoringKit", package: "boring-ass-app-kit"),
 ```

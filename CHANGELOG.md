@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org). Until 1.0, a minor version (0.x) may include breaking changes, so pin with "Up to Next Minor".
 
-## Unreleased
+## 0.2.0 (2026-11-26)
 
 - macOS 14 and later. Mac apps get crash reports, analytics, feedback and the update prompt, which opens the Mac App Store. A sandboxed Mac app needs the Outgoing Connections (Client) entitlement.
 - Worker: devices and app versions are kept per platform, since a Mac app can share its iPhone app's bundle ID. `devices` has a `platform` column, and `apps` has one row per bundle ID and platform.

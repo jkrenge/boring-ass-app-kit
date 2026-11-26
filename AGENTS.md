@@ -20,7 +20,7 @@ The package is `https://github.com/jkrenge/boring-ass-app-kit`, its product is `
 
 - **App built from a `Package.swift`:**
   ```swift
-  .package(url: "https://github.com/jkrenge/boring-ass-app-kit", .upToNextMinor(from: "0.1.0")),
+  .package(url: "https://github.com/jkrenge/boring-ass-app-kit", .upToNextMinor(from: "0.2.0")),
   // in the app target's dependencies:
   .product(name: "BoringKit", package: "boring-ass-app-kit"),
   ```
@@ -29,14 +29,14 @@ The package is `https://github.com/jkrenge/boring-ass-app-kit`, its product is `
   packages:
     BoringKit:
       url: https://github.com/jkrenge/boring-ass-app-kit
-      minorVersion: 0.1.0
+      minorVersion: 0.2.0
   targets:
     MyApp:
       dependencies:
         - package: BoringKit
   ```
 - **Tuist:** add it there, then regenerate the project.
-- **Plain `.xcodeproj`:** edit `project.pbxproj` only if you can do it cleanly. You need an `XCRemoteSwiftPackageReference` (kind `upToNextMinorVersion`, minimumVersion `0.1.0`), an `XCSwiftPackageProductDependency` for `BoringKit`, an entry in the app target's `packageProductDependencies`, and a `PBXBuildFile` in its Frameworks phase, all with unique IDs. Otherwise ask the user to add it in Xcode (File → Add Package Dependencies…) and carry on with the code meanwhile.
+- **Plain `.xcodeproj`:** edit `project.pbxproj` only if you can do it cleanly. You need an `XCRemoteSwiftPackageReference` (kind `upToNextMinorVersion`, minimumVersion `0.2.0`), an `XCSwiftPackageProductDependency` for `BoringKit`, an entry in the app target's `packageProductDependencies`, and a `PBXBuildFile` in its Frameworks phase, all with unique IDs. Otherwise ask the user to add it in Xcode (File → Add Package Dependencies…) and carry on with the code meanwhile.
 
 **A Mac app:** link BoringKit to the Mac target too. If the app is sandboxed, it needs the Outgoing Connections (Client) entitlement, `com.apple.security.network.client`. Without it, every request fails and nothing reports an error. Add it if it's missing, and tell the user.
 
