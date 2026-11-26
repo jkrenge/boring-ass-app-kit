@@ -8,7 +8,9 @@ The kit gives an app crash reporting, usage analytics, handled-error reports, a 
 
 ### 0. Get the Worker URL
 
-You need the URL of the user's deployed Worker, such as `https://boring-api.<subdomain>.workers.dev`. If the user hasn't given you one, ask for it. Don't invent one. If they haven't deployed a Worker yet, point them to "Deploy the API" in the README. That step needs their Cloudflare login and an Apple key, so they have to do it themselves.
+You need the URL of the user's deployed Worker, such as `https://boring-api.<subdomain>.workers.dev`. If the user hasn't given you one, ask for it. Don't invent one. If they haven't deployed a Worker yet, point them to the setup guide, https://github.com/jkrenge/boring-ass-app-kit/blob/main/docs/adding-to-your-apps.md. That step needs their Cloudflare login and an Apple key, so they have to do it themselves.
+
+The Worker accepts only apps signed by the Apple team whose DeviceCheck key it holds. If you can see the app's team (`DEVELOPMENT_TEAM`), tell the user it must match that key, because an app from another team can't register and sends nothing.
 
 For local testing only, `http://127.0.0.1:8787` works in the Simulator while this repo's Worker runs with `pywrangler dev` and `ALLOW_UNATTESTED=true`. The deployed Worker rejects the Simulator, because the Simulator can't make DeviceCheck tokens. Never ship the local URL.
 
@@ -22,8 +24,21 @@ The package is `https://github.com/jkrenge/boring-ass-app-kit`, its product is `
   // in the app target's dependencies:
   .product(name: "BoringKit", package: "boring-ass-app-kit"),
   ```
-- **XcodeGen (`project.yml`) or Tuist:** add it there, then regenerate the project.
+- **XcodeGen (`project.yml`):** add the package, list it in the app target's dependencies, then run `xcodegen generate`:
+  ```yaml
+  packages:
+    BoringKit:
+      url: https://github.com/jkrenge/boring-ass-app-kit
+      minorVersion: 0.1.0
+  targets:
+    MyApp:
+      dependencies:
+        - package: BoringKit
+  ```
+- **Tuist:** add it there, then regenerate the project.
 - **Plain `.xcodeproj`:** edit `project.pbxproj` only if you can do it cleanly. You need an `XCRemoteSwiftPackageReference` (kind `upToNextMinorVersion`, minimumVersion `0.1.0`), an `XCSwiftPackageProductDependency` for `BoringKit`, an entry in the app target's `packageProductDependencies`, and a `PBXBuildFile` in its Frameworks phase, all with unique IDs. Otherwise ask the user to add it in Xcode (File → Add Package Dependencies…) and carry on with the code meanwhile.
+
+**An app that also builds for macOS or another platform:** BoringKit is iOS only. Link it to the iOS target only. In a single multiplatform target, set the dependency's platform filter to iOS. In files that other targets also compile, put `import BoringKit` and every kit call inside `#if os(iOS)`.
 
 Then run `xcodebuild -resolvePackageDependencies` and build.
 
@@ -75,7 +90,7 @@ do { try save() } catch {
 }
 ```
 
-Skip expected errors like user cancellation or `CancellationError`. Crashes are caught automatically and need no code.
+Skip expected errors like user cancellation or `CancellationError`. `trackError` sends the error's message, and errors from server APIs and SDKs often carry IDs or email addresses in it. Don't send those raw; track an event such as `sync_failed` with a status code instead. Crashes are caught automatically and need no code.
 
 ### 5. Offer feedback
 
@@ -100,6 +115,7 @@ The prompt only appears for apps that have a row in the `apps` table of the user
 
 - Build the app. The kit adds no warnings.
 - Tell the user what to declare in the App Store privacy label: Crash Data, Performance Data, Product Interaction and Other Diagnostic Data, none linked to the user's identity. Add Email Address if they keep the optional feedback email. KSCrash and Aptabase ship their own privacy manifests.
+- Find every claim that the app collects nothing, has no analytics or crash reporting, talks to no server or uses no third-party code: its privacy policy, website, README, App Store text, contributor rules and `PrivacyInfo.xcprivacy`. Propose new wording, saying the app sends crash reports, usage events and feedback to the developer's own server, and get the user's OK before committing it.
 - Add a short note to the app's own `AGENTS.md` or `CLAUDE.md` so future sessions keep using the kit. For example: *"Analytics: `Aptabase.shared.trackEvent` (via BoringKit), no personal data in props. Unexpected errors: `Aptabase.shared.trackError`. Feedback: `FeedbackView`."*
 
 ### Don'ts

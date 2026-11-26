@@ -49,6 +49,8 @@ flowchart LR
 
 ## Quick start
 
+Setting the kit up for the first time, for one app or several? [Adding the kit to your apps](docs/adding-to-your-apps.md) walks through it from start to release. The steps below are the short version.
+
 ### 1. Deploy the API (once)
 
 **Apple:** in the developer portal, go to Certificates, IDs & Profiles → Keys and create a key with **DeviceCheck** enabled. Download `AuthKey_XXXXXXXXXX.p8`, and note its Key ID and your Team ID. One key covers every app in the team, and apps need no extra entitlement.

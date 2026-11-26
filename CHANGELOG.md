@@ -8,6 +8,7 @@ This project follows [Semantic Versioning](https://semver.org). Until 1.0, a min
 - Worker: `wrangler.jsonc` has no `database_id`. The first deploy creates the database, and every command finds it by name. If you pasted an ID into the file, take this version when you update: it finds the same database.
 - A GitHub Actions workflow that tests, migrates and deploys the Worker on every push to `main`, optionally on your own domain with `workers.dev` turned off.
 - README: deploying from GitHub, keeping your copy up to date, and hardening your own domain with WAF rules.
+- Docs: [Adding the kit to your apps](docs/adding-to-your-apps.md), a walkthrough from deploying the Worker to releasing. AGENTS.md covers XcodeGen, apps with a Mac target, personal data in error messages, and rewriting an app's privacy claims.
 
 ## 0.1.1 (2026-11-23)
 

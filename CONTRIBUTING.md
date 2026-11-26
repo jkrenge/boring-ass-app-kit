@@ -11,6 +11,7 @@ Thanks for helping. This kit stays useful by staying small, so the best changes 
 | `api/src/entry.py` | Worker routes and the glue to D1, Apple and rate limits |
 | `api/src/kit.py` | Pure helpers: request validation, tokens, JWT, version checks. Unit-tested with pytest. |
 | `api/migrations/` | D1 schema, one file per change |
+| `docs/` | Guides for people setting up the kit |
 | `scripts/integration-test.sh` | Runs the Swift test, then checks the rows arrived in local D1 |
 
 ## Setup
