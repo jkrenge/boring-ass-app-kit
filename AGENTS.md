@@ -109,7 +109,7 @@ For your own UI, `await BoringKit.sendFeedback(message, email: optionalEmail)` r
 
 ### 6. Update prompt
 
-`.updatePrompt()` goes on the root view, once. When the Worker reports a newer version, it shows an alert with **Update**, which opens the App Store, and **Not now**. For custom UI, `await BoringKit.availableUpdate()` returns an `AppUpdate?` with `version` and `url`.
+`.updatePrompt()` goes on the root view, once. When the Worker reports a newer version, it shows an alert with **Update**, which opens the App Store, and **Not now**. For custom UI, `await BoringKit.availableUpdate()` returns an `AppUpdate?` with `version` and `url`. On a Mac, `.updatePrompt()` opens the Mac App Store app; a custom UI should open `url` with its scheme changed to `macappstore`, because the `https` link opens a web page.
 
 The prompt only appears for apps that have a row in the `apps` table of the user's D1 database. Tell the user to set one when they release, with the version and the App Store URL `https://apps.apple.com/app/id<number>`. A Mac app gets its own row with `platform` set to `macOS`, even when it shares its iPhone app's bundle ID. The command is under "Telling users about an update" in the README, and it needs no deploy.
 
