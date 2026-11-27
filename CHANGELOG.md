@@ -2,6 +2,10 @@
 
 This project follows [Semantic Versioning](https://semver.org). Until 1.0, a minor version (0.x) may include breaking changes, so pin with "Up to Next Minor".
 
+## Unreleased
+
+- Mac: a build signed without a provisioning profile, such as many Debug builds, keeps its device token in the login keychain. It used to register as a new device on every launch and lose the events tracked at launch.
+
 ## 0.2.0 (2026-11-26)
 
 - macOS 14 and later. Mac apps get crash reports, analytics, feedback and the update prompt, which opens the Mac App Store. A sandboxed Mac app needs the Outgoing Connections (Client) entitlement.
