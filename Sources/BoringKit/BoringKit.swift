@@ -232,10 +232,16 @@ private enum Keychain {
             kSecAttrAccount as String: "device-token",
         ]
         #if os(macOS)
-            // the iOS-style keychain, which never asks the user for access.
-            // shortcut: it needs a team-signed app, so an ad-hoc signed build can't keep the token and registers
-            // again on every launch; fall back to the login keychain if that ever matters
+            // the iOS-style keychain, which never asks the user for access
             query[kSecUseDataProtectionKeychain as String] = true
+            // It needs an app-identifier entitlement, which a build signed without a provisioning profile (many
+            // Debug builds, ad-hoc) lacks. Those would register as a new device on every launch, so they use the
+            // login keychain instead. Every app shares that one, hence the bundle ID in the name.
+            if let task = SecTaskCreateFromSelf(nil),
+               SecTaskCopyValueForEntitlement(task, "com.apple.application-identifier" as CFString, nil) == nil {
+                query[kSecUseDataProtectionKeychain as String] = nil
+                query[kSecAttrService as String] = "BoringKit \(Bundle.main.bundleIdentifier ?? "")"
+            }
         #endif
         return query
     }
