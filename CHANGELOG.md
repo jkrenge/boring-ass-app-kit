@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org). Until 1.0, a minor version (0.x) may include breaking changes, so pin with "Up to Next Minor".
 
-## Unreleased
+## 0.2.1 (2026-11-26)
 
 - Mac: a build signed without a provisioning profile, such as many Debug builds, keeps its device token in the login keychain. It used to register as a new device on every launch and lose the events tracked at launch.
 
